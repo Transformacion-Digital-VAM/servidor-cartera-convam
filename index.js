@@ -1,10 +1,12 @@
 const express = require('express');
 const pool = require('./src/config/db'); 
-const app = express();
+const usuarioRoutes = require('./src/routes/usuario.routes');
+const rolRoutes = require('./src/routes/rol.routes');
 
+const app = express();
 app.use(express.json());
 
-// Ruta de prueba para validar conexión a la base de datos
+// Ruta de prueba
 app.get('/test', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -14,6 +16,10 @@ app.get('/test', async (req, res) => {
     res.status(500).json({ error: 'Error en la conexión' });
   }
 });
+
+// Rutas
+app.use('/usuario', usuarioRoutes);
+app.use('/rol', rolRoutes);
 
 const PORT = 3000;
 app.listen(PORT, () => {

@@ -4,7 +4,10 @@ const usuarioRoutes = require('./src/routes/usuario.routes');
 const rolRoutes = require('./src/routes/rol.routes');
 
 const app = express();
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 
 // Ruta de prueba
 app.get('/test', async (req, res) => {
@@ -20,6 +23,7 @@ app.get('/test', async (req, res) => {
 // Rutas
 app.use('/usuario', usuarioRoutes);
 app.use('/rol', rolRoutes);
+app.use('/', require('./src/routes/auth.routes'))
 
 const PORT = 3000;
 app.listen(PORT, () => {

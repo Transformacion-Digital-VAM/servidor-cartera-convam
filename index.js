@@ -2,7 +2,10 @@ const express = require('express');
 const pool = require('./src/config/db'); 
 const app = express();
 
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 
 // Ruta de prueba para validar conexión a la base de datos
 app.get('/test', async (req, res) => {
@@ -14,6 +17,8 @@ app.get('/test', async (req, res) => {
     res.status(500).json({ error: 'Error en la conexión' });
   }
 });
+
+app.use('/', require('./src/routes/auth.routes'))
 
 const PORT = 3000;
 app.listen(PORT, () => {

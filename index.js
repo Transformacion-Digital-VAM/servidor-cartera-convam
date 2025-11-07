@@ -24,6 +24,7 @@ app.get('/test', async (req, res) => {
 app.use('/usuario', usuarioRoutes);
 app.use('/rol', rolRoutes);
 app.use('/', require('./src/routes/auth.routes'))
+app.use('/', require('./src/routes/cliente.routes'))
 
 const PORT = 3000;
 app.listen(PORT, () => {

@@ -1,13 +1,22 @@
 const express = require('express');
+const cors = require('cors'); // 👈 importa cors
 const pool = require('./src/config/db'); 
 const usuarioRoutes = require('./src/routes/usuario.routes');
 const rolRoutes = require('./src/routes/rol.routes');
+const authRoutes = require('./src/routes/auth.routes');
 
 const app = express();
 
+// Habilitar CORS para permitir solicitudes desde Angular
+app.use(cors({
+  origin: 'http://localhost:4200', //  URL del frontend Angular
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Middleware para parsear JSON
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 
 // Ruta de prueba
 app.get('/test', async (req, res) => {
@@ -23,10 +32,12 @@ app.get('/test', async (req, res) => {
 // Rutas
 app.use('/usuario', usuarioRoutes);
 app.use('/rol', rolRoutes);
-app.use('/', require('./src/routes/auth.routes'))
-app.use('/', require('./src/routes/cliente.routes'))
+app.use('/auth', authRoutes);
+
 
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
+
+

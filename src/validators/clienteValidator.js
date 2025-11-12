@@ -16,13 +16,11 @@ exports.validarRegistroCliente = [
   body('curp')
     .notEmpty().withMessage('La CURP es obligatoria')
     .isLength({ min: 18, max: 18 }).withMessage('La CURP debe tener exactamente 18 caracteres')
-    .matches(/^[A-Z]{4}\d{6}[A-Z]{6}\d{2}$/i)
     .withMessage('La CURP no tiene un formato válido'),
 
   body('rfc')
     .optional({ checkFalsy: true })
-    .isLength({ min: 13, max: 13 }).withMessage('El RFC debe tener exactamente 13 caracteres')
-    .matches(/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/i)
+    .isLength({ min: 12, max: 13 }).withMessage('El RFC debe tener exactamente 13 caracteres')
     .withMessage('El RFC no tiene un formato válido'),
 
   // Sexo y nacionalidad

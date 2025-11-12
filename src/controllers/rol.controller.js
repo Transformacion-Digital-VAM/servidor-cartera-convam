@@ -1,27 +1,12 @@
-// const pool = require('../config/db');
-
-
-// const getRol = async (req, res) => {
-//   try {
-//     const result = await pool.query('SELECT * FROM rol');
-//     res.json(result.rows);
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Error al obtener roles' });
-//   }
-// };
-
-// module.exports = { getRol };
-
 const pool = require('../config/db');
 
 const getRol = async (req, res) => {
   try {
-    console.log('📋 Solicitando lista de roles...');
+    console.log('Solicitando lista de roles...');
     
     const result = await pool.query('SELECT * FROM rol ORDER BY id_rol');
     
-    console.log(`✅ ${result.rows.length} roles encontrados`);
+    console.log(`${result.rows.length} roles encontrados`);
     
     res.json({
       success: true,
@@ -30,7 +15,7 @@ const getRol = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error al obtener roles:', error);
+    console.error('Error al obtener roles:', error);
     res.status(500).json({ 
       success: false,
       error: 'Error al obtener roles de la base de datos',

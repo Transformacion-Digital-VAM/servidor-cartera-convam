@@ -7,7 +7,7 @@ const { mostrarCliente } = require('../controllers/cliente.controller');
 const { eliminarCliente } = require('../controllers/cliente.controller');
 const { validarRegistroCliente } = require('../validators/clienteValidator');
 const { validationResult } = require('express-validator');
-
+const clienteController = require('../controllers/cliente.controller');
 
 router.post('/registrar', validarRegistroCliente, (req, res, next) => {
   // Manejo de errores de validación
@@ -30,4 +30,20 @@ router.put('/editar/:id', editarCliente);
 // ENDPOINT: eliminar cliente
 router.delete('/eliminar/:id', eliminarCliente);
 
-module.exports = router;  
+// module.exports = router;  
+
+
+// Rutas originales
+// router.post('/', clienteController.registrarCliente);
+// router.get('/', clienteController.mostrarClientes);
+// router.get('/:id', clienteController.mostrarCliente);
+// router.put('/:id', clienteController.editarCliente);
+// router.delete('/:id', clienteController.eliminarCliente);
+
+// Nuevas rutas para guardado por partes
+router.post('/direccion', clienteController.guardarDireccion);
+router.post('/cliente', clienteController.guardarCliente);
+router.post('/solicitud', clienteController.guardarSolicitud);
+
+
+module.exports = router;

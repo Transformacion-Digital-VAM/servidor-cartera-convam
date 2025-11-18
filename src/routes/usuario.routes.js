@@ -1,10 +1,3 @@
-// const express = require('express');
-// const router = express.Router();
-// const { getUsuarios } = require('../controllers/usuario.controller');
-
-// router.get('/', getUsuarios);
-
-// module.exports = router;
 const express = require('express');
 const router = express.Router();
 const { getUsuarios, deleteUsuario } = require('../controllers/usuario.controller');

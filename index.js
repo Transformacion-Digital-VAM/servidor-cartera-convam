@@ -4,6 +4,7 @@ const pool = require('./src/config/db');
 const usuarioRoutes = require('./src/routes/usuario.routes');
 const rolRoutes = require('./src/routes/rol.routes');
 const authRoutes = require('./src/routes/auth.routes');
+const clienteRoutes = require('./src/routes/cliente.routes');
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.get('/test', async (req, res) => {
 app.use('/usuario', usuarioRoutes);
 app.use('/rol', rolRoutes);
 app.use('/auth', authRoutes);
+app.use('/cliente', clienteRoutes);
 
 
 const PORT = 3000;

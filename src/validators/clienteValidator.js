@@ -24,9 +24,9 @@ exports.validarRegistroCliente = [
     .withMessage('El RFC no tiene un formato válido'),
 
   // Sexo y nacionalidad
-  body('sexo')
-    .notEmpty().withMessage('El sexo es obligatorio')
-    .isIn(['H', 'M']).withMessage('El sexo debe ser H o M'),
+  // body('sexo')
+  //   .notEmpty().withMessage('El sexo es obligatorio')
+  //   .isIn(['H', 'M']).withMessage('El sexo debe ser H o M'),
 
   body('nacionalidad')
     .notEmpty().withMessage('La nacionalidad es obligatoria'),
@@ -66,9 +66,9 @@ exports.validarRegistroCliente = [
   body('tipo_vencimiento')
     .notEmpty().withMessage('El tipo de vencimiento es obligatorio'),
 
-  body('seguro')
-    .isFloat({ min: 0 }).withMessage('El seguro debe ser un número mayor o igual a 0'),
+  // body('seguro')
+  //   .isFloat({ min: 0 }).withMessage('El seguro debe ser un número mayor o igual a 0'),
 
-  body('estado')
-    .notEmpty().withMessage('El estado es obligatorio')
+  // body('estado')
+  //   .notEmpty().withMessage('El estado es obligatorio')
 ];

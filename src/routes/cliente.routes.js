@@ -11,7 +11,6 @@ const avalController = require('../controllers/aval.controller');
 // Nuevas rutas para guardado por partes
 router.post('/direccion', clienteController.guardarDireccion);
 router.post('/cliente', clienteController.guardarCliente);
-router.post('/solicitud', clienteController.guardarSolicitud);
 
 
 // ENDPOINT: mostrar cliente id
@@ -39,7 +38,5 @@ router.delete('/aval/:id_aval', avalController.eliminarAval);
 // http://localhost:3000/cliente/aval/14
 router.get('/aval/:cliente_id', avalController.obtenerAvalesPorCliente);
 
-
-router.post('/garantia', clienteController.guardarGarantia);
 
 module.exports = router;

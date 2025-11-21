@@ -48,6 +48,7 @@ const guardarDireccion = async (req, res) => {
   }
 };
 
+/** CLIENTE */
 // Guardar solo cliente
 const guardarCliente = async (req, res) => {
   const client = await pool.connect();
@@ -116,76 +117,6 @@ const guardarCliente = async (req, res) => {
     client.release();
   }
 };
-
-// Guardar solo solicitud
-const guardarSolicitud = async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const {
-      usuario_id, cliente_id, monto_solicitado, tasa_interes,
-      tasa_moratoria, plazo_meses, no_pagos, tipo_vencimiento,
-      seguro, observaciones
-    } = req.body;
-
-    // Validar que el cliente existe
-    const clienteExistente = await client.query(
-      'SELECT id_cliente FROM cliente WHERE id_cliente = $1',
-      [cliente_id]
-    );
-
-    if (clienteExistente.rows.length === 0) {
-      return res.status(400).json({
-        error: 'Cliente no encontrado',
-        message: 'El cliente especificado no existe'
-      });
-    }
-
-    const solicitudQuery = `
-      INSERT INTO solicitud (
-        usuario_id, cliente_id, monto_solicitado, tasa_interes, 
-        tasa_moratoria, plazo_meses, no_pagos, tipo_vencimiento, 
-        seguro, estado, observaciones, fecha_creacion
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-      RETURNING id_solicitud
-    `;
-
-    const solicitudResult = await client.query(solicitudQuery, [
-      usuario_id,
-      cliente_id,
-      monto_solicitado,
-      tasa_interes,
-      tasa_moratoria,
-      plazo_meses,
-      no_pagos,
-      tipo_vencimiento,
-      seguro || false,
-      'PENDIENTE', // <- CAMBIO IMPORTANTE
-      observaciones || ''
-    ]);
-
-    res.status(201).json({
-      message: 'Solicitud guardada exitosamente',
-      id_solicitud: solicitudResult.rows[0].id_solicitud
-    });
-
-  } catch (error) {
-    console.error('Error al guardar solicitud:', error);
-    res.status(500).json({
-      error: 'Error interno del servidor',
-      detalle: error.message
-    });
-  } finally {
-    client.release();
-  }
-};
-
-
-
-const guardarGarantia = async (req, res) => {
-
-}
-// Registrar Cliente
 
 // Mantener las otras funciones igual...
 const mostrarClientes = async (req, res) => {
@@ -399,13 +330,12 @@ const eliminarCliente = async (req, res) => {
   }
 }
 
+
 module.exports = {
   guardarDireccion,
   guardarCliente,
-  guardarSolicitud,
   editarCliente,
   eliminarCliente,
   mostrarClientes,
-  mostrarCliente,
-  guardarGarantia
+  mostrarCliente
 };

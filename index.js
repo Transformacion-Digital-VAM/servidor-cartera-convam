@@ -7,6 +7,7 @@ const authRoutes = require('./src/routes/auth.routes');
 const clienteRoutes = require('./src/routes/cliente.routes');
 const solicitudRoutes = require('./src/routes/solicitud.routes');
 const creditoRoutes = require('./src/routes/credito.routes');
+const aliadoRoutes = require('./src/routes/aliado.routes');
 const app = express();
 
 // Habilitar CORS para permitir solicitudes desde Angular
@@ -38,6 +39,7 @@ app.use('/auth', authRoutes);
 app.use('/cliente', clienteRoutes);
 app.use('/solicitud', solicitudRoutes);
 app.use('/credito', creditoRoutes);
+app.use('/aliado', aliadoRoutes);
 
 
 const PORT = 3000;

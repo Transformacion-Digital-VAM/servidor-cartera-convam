@@ -1,144 +1,140 @@
 const pool = require('../config/db');
 
 // -------------------------------------------
-// Crear crédito
+// Crear crédito con cálculo automático
 // -------------------------------------------
 const guardarCredito = async (req, res) => {
+  const client = await pool.connect();
+
   try {
+    await client.query("BEGIN");
+
     const {
       solicitud_id,
-      responsable,
+      aliado_id,
       fecha_ministracion,
       fecha_primer_pago,
       referencia_bancaria,
       tipo_credito,
       cuenta_bancaria,
       total_capital,
-      total_interes,
-      total_seguro,
-      total_a_pagar,
-      cat_porcentaje,
-      tipo_servicio = "Prestamo personal"
+      total_seguro = 80,
+      tipo_servicio = "Préstamo personal"
     } = req.body;
 
-    // Validación 
-    if (!solicitud_id || !total_capital) {
+    // Validación
+    if (!solicitud_id || !total_capital || !aliado_id) {
       return res.status(400).json({
-        error: "Solicitud ID y total_capital son obligatorios"
+        error: "solicitud_id, aliado_id y total_capital son obligatorios"
       });
     }
 
-    // 1️. Insertar crédito
-    const creditoResult = await pool.query(
+    // Obtener la tasa del aliado
+    const aliadoResult = await client.query(
+      "SELECT tasa_interes FROM aliado WHERE id_aliado = $1",
+      [aliado_id]
+    );
+
+    if (aliadoResult.rows.length === 0) {
+      return res.status(404).json({ error: "Aliado no encontrado" });
+    }
+
+    const tasa_interes = Number(aliadoResult.rows[0].tasa_interes);
+
+    // Calcular intereses REAL (X pesos por cada 1000)
+    const totalInteres = (Number(total_capital) / 1000) * tasa_interes;
+
+    // Calcular garantía
+    const totalGarantia = Number(total_capital) * 0.10;
+
+    // Calcular total a pagar
+    const totalAPagar =
+      Number(total_capital) + totalInteres;
+
+    // Insertar crédito con cálculos automáticos
+    const creditoResult = await client.query(
       `INSERT INTO credito (
-        solicitud_id, responsable, fecha_ministracion, fecha_primer_pago,
+        solicitud_id, aliado_id,
+        fecha_ministracion, fecha_primer_pago,
         referencia_bancaria, tipo_credito, cuenta_bancaria,
         total_capital, total_interes, total_seguro, total_a_pagar,
-        cat_porcentaje, tipo_servicio
+        total_garantia, tipo_servicio
       )
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING *`,
       [
-        solicitud_id, responsable, fecha_ministracion, fecha_primer_pago,
+        solicitud_id, aliado_id,
+        fecha_ministracion, fecha_primer_pago,
         referencia_bancaria, tipo_credito, cuenta_bancaria,
-        total_capital, total_interes, total_seguro, total_a_pagar,
-        cat_porcentaje, tipo_servicio
+        total_capital, totalInteres, total_seguro, totalAPagar,
+        totalGarantia, tipo_servicio
       ]
     );
 
-    const credito = creditoResult.rows[0];
-
-    // 2️. Calcular garantía (10% del total capital)
-    const montoGarantia = Number(total_capital) * 0.10;
-
-    // 3️. Insertar garantía automáticamente
-    const garantiaResult = await pool.query(
-      `INSERT INTO garantia (credito_id, monto_garantia)
-       VALUES ($1, $2)
-       RETURNING *`,
-      [credito.id_credito, montoGarantia]
-    );
+    await client.query("COMMIT");
 
     res.json({
-      message: "Crédito y garantía generados correctamente",
-      credito,
-      garantia: garantiaResult.rows[0]
+      message: "Crédito registrado correctamente",
+      credito: creditoResult.rows[0]
     });
 
   } catch (error) {
-    console.error("Error al guardar crédito:", error);
+    await client.query("ROLLBACK");
+    console.error("Error guardarCredito:", error);
     res.status(500).json({
       error: "Error interno del servidor",
       detalle: error.message
     });
+  } finally {
+    client.release();
   }
 };
 
+
 // -------------------------------------------
 // Editar crédito
+// -------------------------------------------
+// -------------------------------------------
+// Editar crédito (solo fechas)
 // -------------------------------------------
 const editarCredito = async (req, res) => {
   const client = await pool.connect();
 
   try {
+    await client.query("BEGIN");
+
     const id_credito = req.params.id;
+    const { fecha_ministracion, fecha_primer_pago } = req.body;
 
-    const {
-      responsable,
-      fecha_ministracion,
-      fecha_primer_pago,
-      referencia_bancaria,
-      tipo_credito,
-      cuenta_bancaria,
-      total_capital,
-      total_interes,
-      total_seguro,
-      total_a_pagar,
-      cat_porcentaje
-    } = req.body;
+    // Validación mínima
+    if (!fecha_ministracion && !fecha_primer_pago) {
+      return res.status(400).json({
+        error: "Debes enviar al menos fecha_ministracion o fecha_primer_pago"
+      });
+    }
 
-    // Recalcular garantía si cambió el capital
-    const total_garantia = total_capital ? Number(total_capital) * 0.10 : null;
-
-    const query = `
+    // Actualizar solo las fechas
+    const result = await client.query(
+      `
       UPDATE credito SET
-        responsable = COALESCE($1, responsable),
-        fecha_ministracion = COALESCE($2, fecha_ministracion),
-        fecha_primer_pago = COALESCE($3, fecha_primer_pago),
-        referencia_bancaria = COALESCE($4, referencia_bancaria),
-        tipo_credito = COALESCE($5, tipo_credito),
-        cuenta_bancaria = COALESCE($6, cuenta_bancaria),
-        total_capital = COALESCE($7, total_capital),
-        total_interes = COALESCE($8, total_interes),
-        total_seguro = COALESCE($9, total_seguro),
-        total_a_pagar = COALESCE($10, total_a_pagar),
-        total_garantia = COALESCE($11, total_garantia),
-        cat_porcentaje = COALESCE($12, cat_porcentaje)
-      WHERE id_credito = $13
+        fecha_ministracion = COALESCE($1, fecha_ministracion),
+        fecha_primer_pago = COALESCE($2, fecha_primer_pago)
+      WHERE id_credito = $3
       RETURNING *;
-    `;
-
-    const values = [
-      responsable,
-      fecha_ministracion,
-      fecha_primer_pago,
-      referencia_bancaria,
-      tipo_credito,
-      cuenta_bancaria,
-      total_capital,
-      total_interes,
-      total_seguro,
-      total_a_pagar,
-      total_garantia,
-      cat_porcentaje,
-      id_credito
-    ];
-
-    const result = await client.query(query, values);
+      `,
+      [
+        fecha_ministracion || null,
+        fecha_primer_pago || null,
+        id_credito
+      ]
+    );
 
     if (result.rows.length === 0) {
+      await client.query("ROLLBACK");
       return res.status(404).json({ error: "Crédito no encontrado" });
     }
+
+    await client.query("COMMIT");
 
     res.json({
       message: "Crédito actualizado correctamente",
@@ -146,6 +142,7 @@ const editarCredito = async (req, res) => {
     });
 
   } catch (error) {
+    await client.query("ROLLBACK");
     console.log("Error editarCredito:", error);
     res.status(500).json({ error: "Error interno del servidor" });
   } finally {
@@ -153,12 +150,16 @@ const editarCredito = async (req, res) => {
   }
 };
 
+
+
 // -------------------------------------------
 // Eliminar crédito
 // -------------------------------------------
 const eliminarCredito = async (req, res) => {
   try {
     const id_credito = req.params.id;
+
+    await pool.query("DELETE FROM garantia WHERE credito_id = $1", [id_credito]);
 
     const result = await pool.query(
       "DELETE FROM credito WHERE id_credito = $1 RETURNING *",
@@ -176,6 +177,7 @@ const eliminarCredito = async (req, res) => {
   }
 };
 
+
 // -------------------------------------------
 // Obtener todos los créditos
 // -------------------------------------------
@@ -185,7 +187,7 @@ const obtenerCreditos = async (req, res) => {
       SELECT c.*, s.cliente_id
       FROM credito c
       LEFT JOIN solicitud s ON s.id_solicitud = c.solicitud_id
-      ORDER BY c.id_credito DESC;
+      ORDER BY c.id_credito DESC
     `);
 
     res.json(result.rows);
@@ -195,19 +197,23 @@ const obtenerCreditos = async (req, res) => {
   }
 };
 
+
 // -------------------------------------------
-// Obtener crédito por cliente
+// Obtener créditos por cliente
 // -------------------------------------------
 const obtenerCreditoPorCliente = async (req, res) => {
   try {
     const { cliente_id } = req.params;
 
-    const result = await pool.query(`
+    const result = await pool.query(
+      `
       SELECT c.*
       FROM credito c
       INNER JOIN solicitud s ON s.id_solicitud = c.solicitud_id
       WHERE s.cliente_id = $1
-    `, [cliente_id]);
+      `,
+      [cliente_id]
+    );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ mensaje: "El cliente no tiene créditos" });
@@ -219,6 +225,7 @@ const obtenerCreditoPorCliente = async (req, res) => {
     res.status(500).json({ error: "Error interno del servidor" });
   }
 };
+
 
 module.exports = {
   guardarCredito,

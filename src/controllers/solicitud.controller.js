@@ -7,8 +7,8 @@ const guardarSolicitud = async (req, res) => {
 
   try {
     const {
-      usuario_id, cliente_id, monto_solicitado, tasa_interes,
-      tasa_moratoria, plazo_meses, no_pagos, tipo_vencimiento,
+      usuario_id, cliente_id, monto_solicitado, 
+      plazo_meses, no_pagos, tipo_vencimiento,
       seguro, observaciones
     } = req.body;
 
@@ -27,24 +27,22 @@ const guardarSolicitud = async (req, res) => {
 
     const solicitudQuery = `
       INSERT INTO solicitud (
-        usuario_id, cliente_id, monto_solicitado, tasa_interes, 
-        tasa_moratoria, plazo_meses, no_pagos, tipo_vencimiento, 
+        usuario_id, cliente_id, monto_solicitado,  
+        plazo_meses, no_pagos, tipo_vencimiento, 
         seguro, estado, observaciones, fecha_creacion
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
       RETURNING id_solicitud
     `;
 
     const solicitudResult = await client.query(solicitudQuery, [
       usuario_id,
       cliente_id,
-      monto_solicitado,
-      tasa_interes,
-      tasa_moratoria,
+      monto_solicitado,      
       plazo_meses,
       no_pagos,
       tipo_vencimiento,
       seguro || false,
-      'PENDIENTE', // <- CAMBIO IMPORTANTE
+      'PENDIENTE', 
       observaciones || ''
     ]);
 
@@ -74,8 +72,6 @@ const obtenerSolicitudes = async (req, res) => {
         s.id_solicitud,
         s.fecha_creacion,
         s.monto_solicitado,
-        s.tasa_interes,
-        s.tasa_moratoria,
         s.plazo_meses,
         s.no_pagos,
         s.tipo_vencimiento,

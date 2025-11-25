@@ -9,6 +9,7 @@ const guardarAval = async (req, res) => {
         app_aval,
         apm_aval,
         curp,
+        telefono,
         direccion_id,
         cliente_id,        
     } = req.body;
@@ -41,9 +42,9 @@ const guardarAval = async (req, res) => {
 
     const avalQuery = `
       INSERT INTO aval (
-        nombre_aval, app_aval, apm_aval, curp, 
+        nombre_aval, app_aval, apm_aval, curp, telefono,
         direccion_id, cliente_id
-      ) VALUES ($1, $2, $3, $4, $5, $6)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING id_aval
     `;
 
@@ -52,6 +53,7 @@ const guardarAval = async (req, res) => {
       app_aval,
       apm_aval,
       curp,
+      telefono,
       direccion_id,
       cliente_id
     ]);
@@ -115,6 +117,7 @@ const editarAval = async (req, res) => {
       app_aval,
       apm_aval,
       curp,
+      telefono,
       direccion_id,
       cliente_id
     } = req.body;
@@ -165,9 +168,10 @@ const editarAval = async (req, res) => {
         app_aval = COALESCE($2, app_aval),
         apm_aval = COALESCE($3, apm_aval),
         curp = COALESCE($4, curp),
-        direccion_id = COALESCE($5, direccion_id),
-        cliente_id = COALESCE($6, cliente_id)
-      WHERE id_aval = $7
+        telefono = COALESCE($5, telefono),
+        direccion_id = COALESCE($6, direccion_id),
+        cliente_id = COALESCE($7, cliente_id)
+      WHERE id_aval = $8
       RETURNING *
     `;
 
@@ -176,6 +180,7 @@ const editarAval = async (req, res) => {
       app_aval,
       apm_aval,
       curp ? curp.toUpperCase() : null,
+      telefono,
       direccion_id,
       cliente_id,
       id_aval

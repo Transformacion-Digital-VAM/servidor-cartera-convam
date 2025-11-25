@@ -55,11 +55,20 @@ const guardarCliente = async (req, res) => {
 
   try {
     const {
-      nombre_cliente, app_cliente, apm_cliente, curp,
-      nacionalidad, ocupacion, ciclo_actual, direccion_id
+      folio_cliente,
+      nombre_cliente,
+      app_cliente,
+      apm_cliente,
+      curp,
+      rfc,
+      nacionalidad,
+      ocupacion,
+      ciclo_actual,
+      telefono,
+      direccion_id
     } = req.body;
 
-    // Validar que la dirección existe
+    // Validar dirección existente
     const direccionExistente = await client.query(
       'SELECT id_direccion FROM direccion WHERE id_direccion = $1',
       [direccion_id]
@@ -72,42 +81,40 @@ const guardarCliente = async (req, res) => {
       });
     }
 
+    // Obtener fecha nacimiento desde la CURP
     const fecha_nacimiento = obtenerFechaNac(curp);
 
-    const clienteQuery = `
+    const query = `
       INSERT INTO cliente (
-        nombre_cliente, app_cliente, apm_cliente, curp, 
-        fecha_nacimiento, nacionalidad, direccion_id, ocupacion, ciclo_actual
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        folio_cliente, nombre_cliente, app_cliente, apm_cliente, curp,
+        rfc, fecha_nacimiento, nacionalidad, direccion_id, ocupacion,
+        ciclo_actual, telefono
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING id_cliente
     `;
 
-    const clienteResult = await client.query(clienteQuery, [
+    const result = await client.query(query, [
+      folio_cliente,
       nombre_cliente,
       app_cliente,
       apm_cliente,
-      curp.toUpperCase(),
-      fecha_nacimiento || '2000-01-01',
+      curp?.toUpperCase() || null,
+      rfc?.toUpperCase() || null,
+      fecha_nacimiento || null,
       nacionalidad,
       direccion_id,
       ocupacion,
-      ciclo_actual
+      ciclo_actual,
+      telefono
     ]);
 
     res.status(201).json({
       message: 'Cliente guardado exitosamente',
-      id_cliente: clienteResult.rows[0].id_cliente
+      id_cliente: result.rows[0].id_cliente
     });
 
   } catch (error) {
     console.error('Error al guardar cliente:', error);
-
-    if (error.code === '23505' && error.constraint.includes('curp')) {
-      return res.status(400).json({
-        error: 'El cliente ya existe',
-        message: 'Ya existe un cliente con esta CURP'
-      });
-    }
 
     res.status(500).json({
       error: 'Error interno del servidor',
@@ -118,12 +125,15 @@ const guardarCliente = async (req, res) => {
   }
 };
 
+
 // Mantener las otras funciones igual...
 const mostrarClientes = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT c.id_cliente, c.nombre_cliente, c.app_cliente, c.apm_cliente, 
-             c.curp, c.nacionalidad, c.ocupacion, c.ciclo_actual,
+      SELECT c.id_cliente, c.folio_cliente, c.nombre_cliente, 
+             c.app_cliente, c.apm_cliente, c.telefono, c.curp, 
+             c.rfc, c.fecha_nacimiento, c.nacionalidad, 
+             c.ocupacion, c.ciclo_actual,
              d.municipio, d.localidad, d.calle, d.numero
       FROM cliente c
       LEFT JOIN direccion d ON c.direccion_id = d.id_direccion
@@ -131,57 +141,57 @@ const mostrarClientes = async (req, res) => {
     `);
     res.status(200).json(result.rows);
   } catch (error) {
-    console.error('Error al obtener clientes: ', error);
-    res.status(500).json({ message: 'Error al obtener los clientes', error: error.message })
+    res.status(500).json({ message: 'Error al obtener clientes', error: error.message })
   }
 };
+
 
 const mostrarCliente = async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query(`
-      SELECT c.id_cliente, c.nombre_cliente, c.app_cliente, c.apm_cliente, 
-             c.curp, c.nacionalidad, c.ocupacion, c.ciclo_actual,
+      SELECT c.id_cliente, c.folio_cliente, c.nombre_cliente, 
+             c.app_cliente, c.apm_cliente, c.telefono, c.curp,
+             c.rfc, c.fecha_nacimiento, c.nacionalidad,
+             c.ocupacion, c.ciclo_actual,
              d.municipio, d.localidad, d.calle, d.numero
       FROM cliente c
       LEFT JOIN direccion d ON c.direccion_id = d.id_direccion
       WHERE c.id_cliente = $1;
     `, [id]);
+
     if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Cliente no encontrado' });
     }
+
     res.status(200).json(result.rows[0]);
+
   } catch (error) {
-    console.error('Error al obtener cliente por ID: ', error);
     res.status(500).json({ message: 'Error al obtener cliente', error: error.message })
   }
 };
+
 
 const editarCliente = async (req, res) => {
   const client = await pool.connect();
   try {
     const {
       id_cliente,
+      folio_cliente,
       nombre_cliente,
       app_cliente,
       apm_cliente,
+      telefono,
       curp,
+      rfc,
+      fecha_nacimiento,
       nacionalidad,
       ocupacion,
       ciclo_actual,
       municipio,
       localidad,
       calle,
-      numero,
-      monto_solicitado,
-      tasa_interes,
-      tasa_moratoria,
-      plazo_meses,
-      no_pagos,
-      tipo_vencimiento,
-      seguro,
-      estado,
-      observaciones
+      numero
     } = req.body;
 
     if (!id_cliente) {
@@ -190,7 +200,6 @@ const editarCliente = async (req, res) => {
 
     await client.query('BEGIN');
 
-    // 1️⃣ Obtener id_direccion asociado al cliente
     const dirQuery = await client.query(
       `SELECT direccion_id FROM cliente WHERE id_cliente = $1`,
       [id_cliente]
@@ -202,22 +211,29 @@ const editarCliente = async (req, res) => {
 
     const idDireccion = dirQuery.rows[0].direccion_id;
 
-    // 2️⃣ Actualizar datos del cliente
     await client.query(
       `UPDATE cliente
-       SET nombre_cliente = $1,
-           app_cliente = $2,
-           apm_cliente = $3,
-           curp = $4,
-           nacionalidad = $5,
-           ocupacion = $6,
-           ciclo_actual = $7
-       WHERE id_cliente = $8`,
+       SET folio_cliente=$1,
+           nombre_cliente=$2,
+           app_cliente=$3,
+           apm_cliente=$4,
+           telefono=$5,
+           curp=$6,
+           rfc=$7,
+           fecha_nacimiento=$8,
+           nacionalidad=$9,
+           ocupacion=$10,
+           ciclo_actual=$11
+       WHERE id_cliente = $12`,
       [
+        folio_cliente,
         nombre_cliente,
         app_cliente,
         apm_cliente,
+        telefono,
         curp,
+        rfc,
+        fecha_nacimiento,
         nacionalidad,
         ocupacion,
         ciclo_actual,
@@ -225,70 +241,27 @@ const editarCliente = async (req, res) => {
       ]
     );
 
-    // 3️⃣ Actualizar dirección
-    if (idDireccion) {
-      await client.query(
-        `UPDATE direccion
-         SET municipio = $1,
-             localidad = $2,
-             calle = $3,
-             numero = $4
-         WHERE id_direccion = $5`,
-        [municipio, localidad, calle, numero, idDireccion]
-      );
-    }
-
-    // 4️⃣ Actualizar solicitud más reciente (si aplica)
-    const solicitudQuery = await client.query(
-      `SELECT id_solicitud FROM solicitud WHERE cliente_id = $1 ORDER BY fecha_creacion DESC LIMIT 1`,
-      [id_cliente]
+    await client.query(
+      `UPDATE direccion
+       SET municipio=$1,
+           localidad=$2,
+           calle=$3,
+           numero=$4
+       WHERE id_direccion=$5`,
+      [municipio, localidad, calle, numero, idDireccion]
     );
 
-    if (solicitudQuery.rowCount > 0) {
-      const idSolicitud = solicitudQuery.rows[0].id_solicitud;
-
-      await client.query(
-        `UPDATE solicitud
-         SET monto_solicitado = $1,
-             tasa_interes = $2,
-             tasa_moratoria = $3,
-             plazo_meses = $4,
-             no_pagos = $5,
-             tipo_vencimiento = $6,
-             seguro = $7,
-             estado = $8,
-             observaciones = $9
-         WHERE id_solicitud = $10`,
-        [
-          monto_solicitado,
-          tasa_interes,
-          tasa_moratoria,
-          plazo_meses,
-          no_pagos,
-          tipo_vencimiento,
-          seguro,
-          estado,
-          observaciones,
-          idSolicitud
-        ]
-      );
-    }
-
     await client.query('COMMIT');
-
-    res.status(200).json({
-      message: 'Cliente actualizado correctamente',
-      id_cliente
-    });
+    res.status(200).json({ message: 'Cliente actualizado correctamente' });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error al editar cliente:', error);
     res.status(500).json({ message: 'Error al editar cliente', error: error.message });
   } finally {
     client.release();
   }
 };
+
 
 const eliminarCliente = async (req, res) => {
   const client = await pool.connect();

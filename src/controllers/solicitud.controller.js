@@ -7,12 +7,12 @@ const guardarSolicitud = async (req, res) => {
 
   try {
     const {
-      usuario_id, cliente_id, monto_solicitado, 
-      plazo_meses, no_pagos, tipo_vencimiento,
-      seguro, observaciones
+      usuario_id, cliente_id, aliado_id, aval_id,
+      monto_solicitado, plazo_meses, no_pagos,
+      tipo_vencimiento, tipo_credito,
+      observaciones, dia_pago
     } = req.body;
 
-    // Validar que el cliente existe
     const clienteExistente = await client.query(
       'SELECT id_cliente FROM cliente WHERE id_cliente = $1',
       [cliente_id]
@@ -27,23 +27,36 @@ const guardarSolicitud = async (req, res) => {
 
     const solicitudQuery = `
       INSERT INTO solicitud (
-        usuario_id, cliente_id, monto_solicitado,  
-        plazo_meses, no_pagos, tipo_vencimiento, 
-        seguro, estado, observaciones, fecha_creacion
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        usuario_id,
+        cliente_id,
+        aliado_id,
+        monto_solicitado,
+        plazo_meses,
+        no_pagos,
+        tipo_vencimiento,
+        aval_id,
+        tipo_credito,
+        estado,
+        observaciones,
+        dia_pago,
+        fecha_creacion
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       RETURNING id_solicitud
     `;
 
     const solicitudResult = await client.query(solicitudQuery, [
       usuario_id,
       cliente_id,
+      aliado_id,
       monto_solicitado,      
-      plazo_meses,
-      no_pagos,
+      plazo_meses || 4,      
+      no_pagos || 16,        
       tipo_vencimiento,
-      seguro || false,
-      'PENDIENTE', 
-      observaciones || ''
+      aval_id,
+      tipo_credito,
+      'PENDIENTE',
+      observaciones || '',
+      dia_pago
     ]);
 
     res.status(201).json({
@@ -72,12 +85,15 @@ const obtenerSolicitudes = async (req, res) => {
         s.id_solicitud,
         s.fecha_creacion,
         s.monto_solicitado,
+        s.aliado_id,
+        s.aval_id,
         s.plazo_meses,
         s.no_pagos,
         s.tipo_vencimiento,
-        s.seguro,
+        s.tipo_credito,
         s.estado,
         s.observaciones,
+        s.dia_pago,
         c.nombre_cliente,
         c.app_cliente,
         c.apm_cliente,

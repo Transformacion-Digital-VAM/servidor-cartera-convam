@@ -5,6 +5,7 @@ const { mostrarClientes } = require('../controllers/cliente.controller');
 const { mostrarCliente } = require('../controllers/cliente.controller');
 const { eliminarCliente } = require('../controllers/cliente.controller');
 const clienteController = require('../controllers/cliente.controller');
+const { obtenerClientesPorAliado } = require('../controllers/cliente.controller');
 const avalController = require('../controllers/aval.controller');
 
 
@@ -37,6 +38,8 @@ router.delete('/aval/:id_aval', avalController.eliminarAval);
 // Obtener aval por cliente
 // http://localhost:3000/cliente/aval/14
 router.get('/aval/:cliente_id', avalController.obtenerAvalesPorCliente);
+
+router.get("/aliado/:id_aliado", obtenerClientesPorAliado);
 
 
 module.exports = router;

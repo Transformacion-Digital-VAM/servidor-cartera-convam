@@ -17,19 +17,40 @@ const guardarCredito = async (req, res) => {
       referencia_bancaria,
       tipo_credito,
       cuenta_bancaria,
-      total_capital,
       total_seguro = 80,
       tipo_servicio = "Préstamo personal"
     } = req.body;
 
-    // Validación
-    if (!solicitud_id || !total_capital || !aliado_id) {
+    // Validaciones mínimas
+    if (!solicitud_id || !aliado_id) {
       return res.status(400).json({
-        error: "solicitud_id, aliado_id y total_capital son obligatorios"
+        error: "solicitud_id y aliado_id son obligatorios"
       });
     }
 
-    // Obtener la tasa del aliado
+    // ============================
+    // 1. Obtener monto aprobado
+    // ============================
+    const solicitudResult = await client.query(
+      "SELECT monto_aprobado FROM solicitud WHERE id_solicitud = $1",
+      [solicitud_id]
+    );
+
+    if (solicitudResult.rows.length === 0) {
+      return res.status(404).json({ error: "Solicitud no encontrada" });
+    }
+
+    const total_capital = Number(solicitudResult.rows[0].monto_aprobado);
+
+    if (!total_capital || total_capital <= 0) {
+      return res.status(400).json({
+        error: "La solicitud no tiene un monto aprobado válido"
+      });
+    }
+
+    // ============================
+    // 2. Obtener tasa del aliado
+    // ============================
     const aliadoResult = await client.query(
       "SELECT tasa_interes FROM aliado WHERE id_aliado = $1",
       [aliado_id]
@@ -41,17 +62,16 @@ const guardarCredito = async (req, res) => {
 
     const tasa_interes = Number(aliadoResult.rows[0].tasa_interes);
 
-    // Calcular intereses REAL (X pesos por cada 1000)
-    const totalInteres = (Number(total_capital) / 1000) * tasa_interes;
+    // ============================
+    // 3. Calcular montos del crédito
+    // ============================
+    const totalInteres = (total_capital / 1000) * tasa_interes;
+    const totalGarantia = total_capital * 0.10;
+    const totalAPagar = total_capital + totalInteres;
 
-    // Calcular garantía
-    const totalGarantia = Number(total_capital) * 0.10;
-
-    // Calcular total a pagar
-    const totalAPagar =
-      Number(total_capital) + totalInteres;
-
-    // Insertar crédito con cálculos automáticos
+    // ============================
+    // 4. Insertar crédito
+    // ============================
     const creditoResult = await client.query(
       `INSERT INTO credito (
         solicitud_id, aliado_id,

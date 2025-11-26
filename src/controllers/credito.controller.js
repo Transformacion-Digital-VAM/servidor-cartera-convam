@@ -11,28 +11,26 @@ const guardarCredito = async (req, res) => {
 
     const {
       solicitud_id,
-      aliado_id,
       fecha_ministracion,
       fecha_primer_pago,
       referencia_bancaria,
       tipo_credito,
       cuenta_bancaria,
-      total_seguro = 80,
+      seguro,
       tipo_servicio = "Préstamo personal"
     } = req.body;
 
-    // Validaciones mínimas
-    if (!solicitud_id || !aliado_id) {
+    if (!solicitud_id) {
       return res.status(400).json({
-        error: "solicitud_id y aliado_id son obligatorios"
+        error: "solicitud_id es obligatorio"
       });
     }
 
-    // ============================
-    // 1. Obtener monto aprobado
-    // ============================
+    // 1️ Obtener datos desde la solicitud (incluye aliado_id y monto_aprobado)
     const solicitudResult = await client.query(
-      "SELECT monto_aprobado FROM solicitud WHERE id_solicitud = $1",
+      `SELECT monto_aprobado, aliado_id 
+       FROM solicitud 
+       WHERE id_solicitud = $1`,
       [solicitud_id]
     );
 
@@ -40,7 +38,15 @@ const guardarCredito = async (req, res) => {
       return res.status(404).json({ error: "Solicitud no encontrada" });
     }
 
-    const total_capital = Number(solicitudResult.rows[0].monto_aprobado);
+    const { monto_aprobado, aliado_id } = solicitudResult.rows[0];
+
+    if (!aliado_id) {
+      return res.status(400).json({
+        error: "La solicitud no tiene aliado asignado"
+      });
+    }
+
+    const total_capital = Number(monto_aprobado);
 
     if (!total_capital || total_capital <= 0) {
       return res.status(400).json({
@@ -48,9 +54,7 @@ const guardarCredito = async (req, res) => {
       });
     }
 
-    // ============================
-    // 2. Obtener tasa del aliado
-    // ============================
+    // 2️ Obtener tasa del aliado
     const aliadoResult = await client.query(
       "SELECT tasa_interes FROM aliado WHERE id_aliado = $1",
       [aliado_id]
@@ -62,32 +66,33 @@ const guardarCredito = async (req, res) => {
 
     const tasa_interes = Number(aliadoResult.rows[0].tasa_interes);
 
-    // ============================
-    // 3. Calcular montos del crédito
-    // ============================
+    // 3️ Calcular costos (intereses, garantía, etc.)
     const totalInteres = (total_capital / 1000) * tasa_interes;
     const totalGarantia = total_capital * 0.10;
+    const total_seguro = seguro === true ? 80 : null;
     const totalAPagar = total_capital + totalInteres;
 
-    // ============================
-    // 4. Insertar crédito
-    // ============================
+    // 4️ Insertar crédito usando aliado_id recuperado
     const creditoResult = await client.query(
       `INSERT INTO credito (
         solicitud_id, aliado_id,
         fecha_ministracion, fecha_primer_pago,
         referencia_bancaria, tipo_credito, cuenta_bancaria,
-        total_capital, total_interes, total_seguro, total_a_pagar,
-        total_garantia, tipo_servicio
+        total_capital, total_interes, seguro, total_seguro,
+        total_a_pagar, total_garantia, tipo_servicio
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING *`,
       [
         solicitud_id, aliado_id,
         fecha_ministracion, fecha_primer_pago,
         referencia_bancaria, tipo_credito, cuenta_bancaria,
-        total_capital, totalInteres, total_seguro, totalAPagar,
-        totalGarantia, tipo_servicio
+        total_capital, totalInteres,
+        seguro,
+        total_seguro,
+        totalAPagar,
+        totalGarantia,
+        tipo_servicio
       ]
     );
 
@@ -111,9 +116,7 @@ const guardarCredito = async (req, res) => {
 };
 
 
-// -------------------------------------------
-// Editar crédito
-// -------------------------------------------
+
 // -------------------------------------------
 // Editar crédito (solo fechas)
 // -------------------------------------------
@@ -138,13 +141,15 @@ const editarCredito = async (req, res) => {
       `
       UPDATE credito SET
         fecha_ministracion = COALESCE($1, fecha_ministracion),
-        fecha_primer_pago = COALESCE($2, fecha_primer_pago)
-      WHERE id_credito = $3
+        fecha_primer_pago = COALESCE($2, fecha_primer_pago),
+        seguro = COALESCE($3, seguro)
+      WHERE id_credito = $4
       RETURNING *;
       `,
       [
         fecha_ministracion || null,
         fecha_primer_pago || null,
+        seguro || null,
         id_credito
       ]
     );
@@ -169,8 +174,6 @@ const editarCredito = async (req, res) => {
     client.release();
   }
 };
-
-
 
 // -------------------------------------------
 // Eliminar crédito

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      body {
+        font-family: "Times New Roman", serif;
+        margin: 40px;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      h1 {
+        text-align: center;
+        text-transform: uppercase;
+        margin-bottom: 20px;
+        font-size: 22px;
+      }
+      .section {
+        margin-bottom: 20px;
+      }
+      .firma {
+        margin-top: 60px;
+        text-align: center;
+      }
+      .firma-line {
+        border-top: 1px solid #000;
+        width: 250px;
+        margin: 0 auto;
+        padding-top: 5px;
+      }
+      .header {
+        text-align: right;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">Fecha: {{fecha}}</div>
+
+    <h1>Pagaré</h1>
+
+    <div class="section">
+      Yo <strong>{{cliente}}</strong>, con domicilio en
+      <strong>{{domicilio}}</strong>, reconozco deber y me obligo
+      incondicionalmente a pagar a la orden de
+      <strong>CONVAM FINANCIERA</strong>, la cantidad de:
+    </div>
+
+    <div class="section" style="font-size: 18px">
+      <strong>$ {{monto}} MXN</strong>
+    </div>
+
+    <div class="section">
+      Este monto será cubierto en <strong>{{pagos}}</strong> pagos semanales,
+      incluyendo intereses de <strong>{{interes}}%</strong>, según contrato.
+    </div>
+
+    <div class="section">
+      El crédito fue otorgado el día <strong>{{fecha}}</strong>, bajo el folio
+      de solicitud <strong>{{folio}}</strong>.
+    </div>
+
+    <div class="section">
+      En caso de incumplimiento, el acreditado y aval se obligan solidariamente
+      al pago total del adeudo pendiente.
+    </div>
+
+    <div class="firma">
+      <div class="firma-line">{{cliente}}</div>
+      <div style="margin-bottom: 40px">Firma del Cliente</div>
+
+      <div class="firma-line">{{aval}}</div>
+      <div>Firma del Aval</div>
+    </div>
+  </body>
+</html>

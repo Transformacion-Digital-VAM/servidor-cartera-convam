@@ -303,6 +303,39 @@ const eliminarCliente = async (req, res) => {
   }
 }
 
+const obtenerClientesPorAliado = async (req, res) => {
+  const { id_aliado } = req.params;
+
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT 
+        c.id_cliente, c.folio_cliente, c.nombre_cliente, 
+        c.app_cliente, c.apm_cliente, c.telefono, c.curp,
+        c.rfc, c.fecha_nacimiento, c.nacionalidad,
+        c.ocupacion, c.ciclo_actual,
+        d.municipio, d.localidad, d.calle, d.numero
+      FROM cliente c
+      INNER JOIN solicitud s ON s.cliente_id = c.id_cliente
+      INNER JOIN credito cr ON cr.solicitud_id = s.id_solicitud
+      LEFT JOIN direccion d ON c.direccion_id = d.id_direccion
+      WHERE cr.aliado_id = $1;
+    `, [id_aliado]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "No hay clientes para este aliado" });
+    }
+
+    res.status(200).json(result.rows);
+
+  } catch (error) {
+    res.status(500).json({ 
+      message: "Error al obtener clientes por aliado", 
+      error: error.message 
+    });
+  }
+};
+
+
 
 module.exports = {
   guardarDireccion,
@@ -310,5 +343,6 @@ module.exports = {
   editarCliente,
   eliminarCliente,
   mostrarClientes,
-  mostrarCliente
+  mostrarCliente,
+  obtenerClientesPorAliado
 };

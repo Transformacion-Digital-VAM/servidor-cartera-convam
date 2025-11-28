@@ -21,14 +21,12 @@ const guardarCredito = async (req, res) => {
     } = req.body;
 
     if (!solicitud_id) {
-      return res.status(400).json({
-        error: "solicitud_id es obligatorio"
-      });
+      return res.status(400).json({ error: "solicitud_id es obligatorio" });
     }
 
-    // 1️ Obtener datos desde la solicitud (incluye aliado_id y monto_aprobado)
+    // 1. Obtener datos de la solicitud
     const solicitudResult = await client.query(
-      `SELECT monto_aprobado, aliado_id 
+      `SELECT monto_aprobado, aliado_id
        FROM solicitud 
        WHERE id_solicitud = $1`,
       [solicitud_id]
@@ -42,7 +40,7 @@ const guardarCredito = async (req, res) => {
 
     if (!aliado_id) {
       return res.status(400).json({
-        error: "La solicitud no tiene aliado asignado"
+        error: "La solicitud no tiene un aliado asignado"
       });
     }
 
@@ -54,9 +52,11 @@ const guardarCredito = async (req, res) => {
       });
     }
 
-    // 2️ Obtener tasa del aliado
+    // 2. Obtener tasa del aliado
     const aliadoResult = await client.query(
-      "SELECT tasa_interes FROM aliado WHERE id_aliado = $1",
+      `SELECT tasa_fija 
+       FROM aliado 
+       WHERE id_aliado = $1`,
       [aliado_id]
     );
 
@@ -64,35 +64,41 @@ const guardarCredito = async (req, res) => {
       return res.status(404).json({ error: "Aliado no encontrado" });
     }
 
-    const tasa_interes = Number(aliadoResult.rows[0].tasa_interes);
+    const tasa_fija = Number(aliadoResult.rows[0].tasa_fija);
 
-    // 3️ Calcular costos (intereses, garantía, etc.)
-    const totalInteres = (total_capital / 1000) * tasa_interes;
+    // 3. Calcular costos
+    const totalInteres = (total_capital * tasa_fija) / 4 * 16;    
     const totalGarantia = total_capital * 0.10;
-    const total_seguro = seguro === true ? 80 : null;
-    const totalAPagar = total_capital + totalInteres;
+    const total_seguro = seguro ? 80 : null;
+    const totalAPagar = total_capital + totalInteres + (total_seguro ?? 0);
 
-    // 4️ Insertar crédito usando aliado_id recuperado
+    // 4. Insertar crédito según estructura real de la tabla
     const creditoResult = await client.query(
       `INSERT INTO credito (
-        solicitud_id, aliado_id,
-        fecha_ministracion, fecha_primer_pago,
+        solicitud_id, fecha_ministracion, fecha_primer_pago,
         referencia_bancaria, tipo_credito, cuenta_bancaria,
-        total_capital, total_interes, seguro, total_seguro,
-        total_a_pagar, total_garantia, tipo_servicio
+        total_capital, total_interes, total_seguro,
+        total_a_pagar, total_garantia, tipo_servicio,
+        aliado_id, seguro, tasa_fija
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING *`,
       [
-        solicitud_id, aliado_id,
-        fecha_ministracion, fecha_primer_pago,
-        referencia_bancaria, tipo_credito, cuenta_bancaria,
-        total_capital, totalInteres,
-        seguro,
+        solicitud_id,
+        fecha_ministracion,
+        fecha_primer_pago,
+        referencia_bancaria,
+        tipo_credito,
+        cuenta_bancaria,
+        total_capital,
+        totalInteres,
         total_seguro,
         totalAPagar,
         totalGarantia,
-        tipo_servicio
+        tipo_servicio,
+        aliado_id,
+        seguro,
+        tasa_fija
       ]
     );
 

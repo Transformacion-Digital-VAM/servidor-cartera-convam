@@ -23,7 +23,7 @@ const generarPagare = async (req, res) => {
       "utf8"
     );
 
-    // 2. Reemplazar variables
+    // 2.Variables
     template = template
       .replace(/{{cliente}}/g, cliente)
       .replace(/{{domicilio}}/g, domicilio)

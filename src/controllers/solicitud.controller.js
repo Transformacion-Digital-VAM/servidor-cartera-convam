@@ -196,7 +196,7 @@ const obtenerSolicitudesPorEstado = async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { estado } = req.params; // PENDIENTE, APROBADO o RECHAZADO
+    const { estado } = req.params; 
 
     const query = `
       SELECT 

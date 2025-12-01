@@ -74,7 +74,7 @@ const generarPagare = async (req, res) => {
 
     const monto = Number(data.total_capital);
     const interes = Number(data.total_interes) / 16;
-    const tasaInteres = Number(data.tasa_fija);
+    const tasaInteres = Number(data.tasa_fija)*100;
     const capitalPorPago = monto / 16;
 
     // CONVERSIÓN  A LETRAS

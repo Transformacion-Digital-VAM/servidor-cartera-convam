@@ -13,7 +13,7 @@ const {
 } = require('../controllers/solicitud.controller');
 
 // Obtener todas las solicitudes
-router.get('/', obtenerSolicitudes);
+router.get('/solicitud', obtenerSolicitudes);
 
 // Obtener solicitud por ID
 router.get('/:id_solicitud', obtenerSolicitudPorId);
@@ -25,7 +25,7 @@ router.get('/cliente/:cliente_id', obtenerSolicitudesPorCliente);
 router.get('/estado/:estado', obtenerSolicitudesPorEstado);
 
 // Guardar una nueva solicitud
-router.post('/', guardarSolicitud);
+router.post('/crear', guardarSolicitud);
 
 // Aprobar una solicitud
 router.put('/aprobar/:id_solicitud', aprobarSolicitud);

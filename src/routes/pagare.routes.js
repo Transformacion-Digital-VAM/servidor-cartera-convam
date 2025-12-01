@@ -2,6 +2,6 @@ const express = require("express");
 const router = express.Router();
 const { generarPagare } = require("../controllers/pagare.controller");
 
-router.post("/generar", generarPagare);
+router.get("/:id_credito", generarPagare);
 
 module.exports = router;

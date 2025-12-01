@@ -282,14 +282,12 @@ const guardarCredito = async (req, res) => {
     } = req.body;
 
     if (!solicitud_id) {
-      return res.status(400).json({
-        error: "solicitud_id es obligatorio"
-      });
+      return res.status(400).json({ error: "solicitud_id es obligatorio" });
     }
 
     // 1. Obtener datos desde la solicitud
     const solicitudResult = await client.query(
-      `SELECT monto_aprobado, aliado_id 
+      `SELECT monto_aprobado, aliado_id
        FROM solicitud 
        WHERE id_solicitud = $1`,
       [solicitud_id]
@@ -303,7 +301,7 @@ const guardarCredito = async (req, res) => {
 
     if (!aliado_id) {
       return res.status(400).json({
-        error: "La solicitud no tiene aliado asignado"
+        error: "La solicitud no tiene un aliado asignado"
       });
     }
 
@@ -315,9 +313,11 @@ const guardarCredito = async (req, res) => {
       });
     }
 
-    // 2. Obtener tasa del aliado (esta será el "pago por cada mil")
+    // 2️ Obtener tasa del aliado
     const aliadoResult = await client.query(
-      "SELECT tasa_interes FROM aliado WHERE id_aliado = $1",
+      `SELECT tasa_fija 
+       FROM aliado 
+       WHERE id_aliado = $1`,
       [aliado_id]
     );
 
@@ -325,49 +325,41 @@ const guardarCredito = async (req, res) => {
       return res.status(404).json({ error: "Aliado no encontrado" });
     }
 
-    // EJEMPLO: si tasa_interes = 85 → significa 85 pesos por cada mil
-    const tasa_interes = Number(aliadoResult.rows[0].tasa_interes);
+    const tasa_fija = Number(aliadoResult.rows[0].tasa_fija);
 
-    // -------------------------------------------
-    // 3. Cálculo tipo TABLA
-    // -------------------------------------------
-
-    // Pago semanal = (capital/1000) * tasa_interes
-    const pagoSemanal = (total_capital / 1000) * tasa_interes;
-
-    // Total a pagar = pago semanal * 16 semanas
-    const totalAPagar = pagoSemanal * 16;
-
-    // Interés total = total pagado − capital
-    const totalInteres = totalAPagar - total_capital;
-
-    // Garantía 10%
+    // 3. Calcular costos
+    const totalInteres = (total_capital * tasa_fija) / 4 * 16;    
     const totalGarantia = total_capital * 0.10;
+    const total_seguro = seguro ? 80 : null;
+    const totalAPagar = total_capital + totalInteres + (total_seguro ?? 0);
 
-    // Seguro
-    const total_seguro = seguro === true ? 80 : null;
-
-    // -------------------------------------------
-
-    // 4. Insertar crédito
+    // 4. Insertar crédito según estructura real de la tabla
     const creditoResult = await client.query(
       `INSERT INTO credito (
-        solicitud_id, aliado_id,
-        fecha_ministracion, fecha_primer_pago,
+        solicitud_id, fecha_ministracion, fecha_primer_pago,
         referencia_bancaria, tipo_credito, cuenta_bancaria,
-        total_capital, total_interes, pago_semanal,
-        seguro, total_seguro, total_a_pagar,
-        total_garantia, tipo_servicio
+        total_capital, total_interes, total_seguro,
+        total_a_pagar, total_garantia, tipo_servicio,
+        aliado_id, seguro, tasa_fija
       )
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING *`,
       [
-        solicitud_id, aliado_id,
-        fecha_ministracion, fecha_primer_pago,
-        referencia_bancaria, tipo_credito, cuenta_bancaria,
-        total_capital, totalInteres, pagoSemanal,
-        seguro, total_seguro, totalAPagar,
-        totalGarantia, tipo_servicio
+        solicitud_id,
+        fecha_ministracion,
+        fecha_primer_pago,
+        referencia_bancaria,
+        tipo_credito,
+        cuenta_bancaria,
+        total_capital,
+        totalInteres,
+        total_seguro,
+        totalAPagar,
+        totalGarantia,
+        tipo_servicio,
+        aliado_id,
+        seguro,
+        tasa_fija
       ]
     );
 

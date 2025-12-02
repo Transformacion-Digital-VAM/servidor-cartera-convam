@@ -142,6 +142,7 @@ const generarPagare = async (req, res) => {
           <th style="border-bottom: 1px solid #000;">Fecha</th>
           <th style="border-bottom: 1px solid #000;">$ Capital</th>
           <th style="border-bottom: 1px solid #000;">$ Intereses</th>
+          <th style="border-bottom: 1px solid #000;">$ IVA</th>
           <th style="border-bottom: 1px solid #000;">$ Total</th>
         </tr>
 
@@ -151,7 +152,8 @@ const generarPagare = async (req, res) => {
             <td style="text-align: center; font-weight: bold;">${p.fecha}</td>
             <td style="text-align: center;">$${p.capital.toFixed(2)}</td>
             <td style="text-align: center;">$${p.interes.toFixed(2)}</td>
-            <td style="text-align: center; font-weight: bold;">$ ${p.total.toFixed(2)}</td>
+            <td style="text-align: center;"></td>
+            <td style="text-align: center; font-weight: bold;" colspan="2">$ ${p.total.toFixed(2)}</td>
           </tr>
         `).join("")}
         <tfoot>
@@ -159,7 +161,8 @@ const generarPagare = async (req, res) => {
             <td colspan="2" style="text-align: center; font-weight: bold;">TOTAL: </td>
             <td style="text-align: center; font-weight: bold;">$ ${totalCapital.toFixed(2)}</td>
             <td style="text-align: center; font-weight: bold;">$ ${totalInteres.toFixed(2)}</td>
-            <td style="text-align: center; font-weight: bold;">$ ${totalPagare.toFixed(2)}</td>
+            <td></td>
+            <td style="text-align: center; font-weight: bold; colspan="2">$ ${totalPagare.toFixed(2)}</td>
           </tr>
         </tfoot>
       </table style="font-size: 11px;">

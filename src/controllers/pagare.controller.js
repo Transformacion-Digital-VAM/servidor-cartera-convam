@@ -60,14 +60,14 @@ const generarPagare = async (req, res) => {
              a.nom_aliado,
              s.dia_pago, tasa_interes,
              av.nombre_aval, av.app_aval, av.apm_aval
-      FROM credito c
-      JOIN solicitud s ON s.id_solicitud = c.solicitud_id
-      JOIN cliente cli ON cli.id_cliente = s.cliente_id
-      JOIN direccion d ON d.id_direccion = cli.direccion_id
-      JOIN aliado a ON a.id_aliado = c.aliado_id
-	    JOIN aval av ON av.id_aval = av.id_aval
-      WHERE c.id_credito = $1
-    `, [id_credito]);
+        FROM credito c
+        JOIN solicitud s ON s.id_solicitud = c.solicitud_id
+        JOIN cliente cli ON cli.id_cliente = s.cliente_id
+        JOIN direccion d ON d.id_direccion = cli.direccion_id
+        JOIN aliado a ON a.id_aliado = c.aliado_id
+        JOIN aval av ON av.id_aval = c.aval_id
+WHERE c.id_credito = 22
+    `);
       console.log(resultado.rows);
     if (resultado.rows.length === 0)
       return res.status(404).json({ error: "Crédito no encontrado" });
@@ -172,14 +172,15 @@ const generarPagare = async (req, res) => {
           de este pagare, me comprometo a responder ante la institución en caso de que el acreditado presente
           atrasos en los pagos de acuerdo a la fecha asignada.
           En la Ciudad de DOLORES HIDALGO, A ${new Date().toLocaleDateString("es-MX")}</p>
-          <table style="font-size: 11px; width: 100%;">
+          <table style="font-size: 11px; width: 100%; align-content: center">
             <tr>
               <th style="text-align: center">"EL ACREDITADO"</th>
               <th style="text-align: center">"EL AVAL"</th>
+              <br>
             </tr>
             <tr>
-              <td>________________________________________</td>
-              <td>________________________________________</td>
+              <td>_________________________________________________</td>
+              <td>_________________________________________________</td>
             </tr>
             <tr>
               <td><b> Nombre:</b> ${cliente}</td>
@@ -217,4 +218,141 @@ const generarPagare = async (req, res) => {
   }
 };
 
-module.exports = { generarPagare };
+const generarHojaControl = async (req, res) => {
+  const client = await pool.connect();
+  const { id_credito } = req.params;
+
+  try {
+    const queryCredito = `
+SELECT 
+        c.id_credito, c.tasa_fija, c.total_a_pagar, c.total_garantia,
+        c.pago_semanal, s.no_pagos, s.tipo_vencimiento, s.dia_pago
+      FROM credito c
+      JOIN solicitud s ON c.solicitud_id = s.id_solicitud
+      WHERE c.id_credito = $1;
+    `;
+
+    const creditoResult = await client.query(queryCredito, [id_credito]);
+
+    if (creditoResult.rowCount === 0)
+      return res.status(404).json({ message: "Crédito no encontrado" });
+
+    const credito = creditoResult.rows[0];
+
+    const querySemanas = `
+      SELECT no_pagos
+      FROM solicitud s
+      join credito c on s.id_solicitud = id_credito
+      WHERE id_credito = $1
+    `;
+
+   const semanasResult = await client.query(querySemanas, [id_credito]);
+
+    let saldoInicial = Number(credito.total_a_pagar);
+    let pago = Number(credito.pago_semanal);
+
+    const tabla = semanasResult.rows.map((data) => {
+      const saldoFinal = saldoInicial - pago;
+
+      const fila = {
+        semana: data.semana,
+        fecha: new Date(data.fecha_pago).toLocaleDateString("es-MX"),
+        saldo_inicial: saldoInicial.toFixed(2),
+        pago: pago.toFixed(2),
+        saldo_final: saldoFinal < 0 ? 0 : saldoFinal.toFixed(2),
+      };
+
+      saldoInicial = saldoFinal;
+      return fila;
+    });
+
+    const encabezado = {
+      no_pagos: credito.no_pagos,
+      periodo: credito.tipo_vencimiento,
+      dia_pago: credito.dia_pago,
+      tasa_interes: credito.tasa_fija * 100,
+      saldo_inicial: credito.total_a_pagar,
+      garantias_ciclo: credito.total_garantia,
+      pago_pactado: credito.pago_semanal,
+    };
+
+    // ---------------------------------------------------------------------
+    // ********************    GENERAR PDF CON PUPPETEER    ****************
+    // ---------------------------------------------------------------------
+
+
+    // Template HTML para el PDF
+    const html = `
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial; padding: 20px; }
+          h1 { text-align: center; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          table, th, td { border: 1px solid black; }
+          th, td { padding: 6px; text-align: center; }
+          .header-box { background: #f0f0f0; padding: 10px; border-radius: 5px; }
+        </style>
+      </head>
+      <body>
+
+        <h1>Hoja de Control</h1>
+
+        <div class="header-box">
+          <p><strong>No. Pagos:</strong> ${encabezado.no_pagos}</p>
+          <p><strong>Periodo:</strong> ${encabezado.periodo}</p>
+          <p><strong>Día pago:</strong> ${encabezado.dia_pago}</p>
+          <p><strong>Tasa interés:</strong> ${encabezado.tasa_interes}%</p>
+          <p><strong>Saldo inicial:</strong> $${encabezado.saldo_inicial}</p>
+          <p><strong>Garantías ciclo:</strong> $${encabezado.garantias_ciclo}</p>
+          <p><strong>Pago pactado:</strong> $${encabezado.pago_pactado}</p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Semana</th>
+              <th>Fecha</th>
+              <th>Saldo inicial</th>
+              <th>Pago</th>
+              <th>Saldo final</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tabla.map(fila => `
+              <tr>
+                <td>${fila.semana}</td>
+                <td>${fila.fecha}</td>
+                <td>$${fila.saldo_inicial}</td>
+                <td>$${fila.pago}</td>
+                <td>$${fila.saldo_final}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+
+      </body>
+      </html>
+    `;
+
+    const browser = await puppeteer.launch({ headless: "new" });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+
+    const rutaPDF = path.join(__dirname, `../hoja-control_${id_credito}.pdf`);
+
+    await page.pdf({ path: rutaPDF, format: "A4" });
+    await browser.close();
+
+    res.json({ message: "Pagaré generado", pdf: rutaPDF });
+
+  } catch (error) {
+    console.error("Error generando hoja de control:", error);
+    res.status(500).json({ message: "Error interno", error });
+  } finally {
+    client.release();
+  }
+};
+
+
+module.exports = { generarPagare, generarHojaControl };

@@ -270,38 +270,55 @@ const eliminarCliente = async (req, res) => {
 
     await client.query('BEGIN');
 
-    // 1. Eliminar solicitudes asociadas a cliente
+    // 0. Obtener avales asociados mediante solicitud
+    const avales = await client.query(`
+      SELECT av.id_aval 
+      FROM aval av
+      JOIN solicitud s ON s.id_aval = av.id_aval
+      WHERE s.cliente_id = $1
+    `, [id_cliente]);
+
+    // 1. Eliminar solicitudes asociadas al cliente
     await client.query(`DELETE FROM solicitud WHERE cliente_id = $1`, [id_cliente]);
-    // 2. Obtener id direccion para eliminar 
+
+    // 2. Eliminar avales asociados si existen
+    for (const row of avales.rows) {
+      await client.query(`DELETE FROM aval WHERE id_aval = $1`, [row.id_aval]);
+    }
+
+    // 3. Obtener dirección del cliente
     const dirResult = await client.query(
       `SELECT direccion_id FROM cliente WHERE id_cliente = $1`, [id_cliente]
     );
+
     if (dirResult.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Cliente no encontrado' });
     }
+
     const id_direccion = dirResult.rows[0].direccion_id;
 
-    // 3. Eliminar cliente
+    // 4. Eliminar cliente
     await client.query(`DELETE FROM cliente WHERE id_cliente = $1`, [id_cliente]);
 
-    // 4. Eliminar direccion (si esta existe)
-
+    // 5. Eliminar dirección
     if (id_direccion) {
       await client.query(`DELETE FROM direccion WHERE id_direccion = $1`, [id_direccion]);
     }
 
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Cliente y aval eliminado correctamente' });
 
-    await client.query('COMMIT')
-    res.status(200).json({ message: 'Cliente eliminado correctamente' })
   } catch (error) {
-    await client.query('ROLLBACK')
+    await client.query('ROLLBACK');
     console.error('Error al eliminar cliente: ', error);
-    res.status(200).json({ message: 'Error al eliminar cliente', error });
+    res.status(500).json({ message: 'Error al eliminar cliente', error });
   } finally {
     client.release();
   }
-}
+};
+
+
 
 const obtenerClientesPorAliado = async (req, res) => {
   const { id_aliado } = req.params;

@@ -18,16 +18,19 @@ const guardarCredito = async (req, res) => {
       // cuenta_bancaria,
       pago_semanal,
       seguro,
-      tipo_servicio = "Préstamo personal"
+      tipo_servicio = "Préstamo personal",
+      tasa_moratoria = 50
     } = req.body;
 
     if (!solicitud_id) {
       return res.status(400).json({ error: "solicitud_id es obligatorio" });
     }
 
-    // 1. Obtener datos desde la solicitud
+    // -------------------------------------------
+    // 1. Obtener datos de la solicitud
+    // -------------------------------------------
     const solicitudResult = await client.query(
-      `SELECT monto_aprobado, aliado_id
+      `SELECT monto_aprobado, aliado_id, aval_id
        FROM solicitud 
        WHERE id_solicitud = $1`,
       [solicitud_id]
@@ -37,7 +40,7 @@ const guardarCredito = async (req, res) => {
       return res.status(404).json({ error: "Solicitud no encontrada" });
     }
 
-    const { monto_aprobado, aliado_id } = solicitudResult.rows[0];
+    const { monto_aprobado, aliado_id, aval_id } = solicitudResult.rows[0];
 
     if (!aliado_id) {
       return res.status(400).json({
@@ -46,18 +49,17 @@ const guardarCredito = async (req, res) => {
     }
 
     const total_capital = Number(monto_aprobado);
-
     if (!total_capital || total_capital <= 0) {
       return res.status(400).json({
         error: "La solicitud no tiene un monto aprobado válido"
       });
     }
 
-    // 2️ Obtener tasa del aliado
+    // -------------------------------------------
+    // 2. Obtener tasa del aliado
+    // -------------------------------------------
     const aliadoResult = await client.query(
-      `SELECT tasa_fija 
-       FROM aliado 
-       WHERE id_aliado = $1`,
+      `SELECT tasa_fija FROM aliado WHERE id_aliado = $1`,
       [aliado_id]
     );
 
@@ -67,21 +69,27 @@ const guardarCredito = async (req, res) => {
 
     const tasa_fija = Number(aliadoResult.rows[0].tasa_fija);
 
+    // -------------------------------------------
     // 3. Calcular costos
+    // -------------------------------------------
     const totalInteres = (total_capital * tasa_fija) / 4 * 16;    
     const totalGarantia = total_capital * 0.10;
-    const total_seguro = seguro ? 80 : null;
-    const totalAPagar = total_capital + totalInteres + (total_seguro ?? 0);
+    const total_seguro = seguro ? 80 : 0;
+    const totalAPagar = total_capital + totalInteres + total_seguro;
+    const pago_semanal = Number(totalAPagar) / 16;
 
-    // 4. Insertar crédito según estructura real de la tabla
+    // -------------------------------------------
+    // 4. Insertar crédito según estructura REAL
+    // -------------------------------------------
     const creditoResult = await client.query(
       `INSERT INTO credito (
         solicitud_id, fecha_ministracion, fecha_primer_pago, tipo_credito,
         total_capital, total_interes,pago_semanal, total_seguro,
         total_a_pagar, total_garantia, tipo_servicio,
-        aliado_id, seguro, tasa_fija
+        aliado_id, seguro, tasa_fija, aval_id,
+        pago_semanal, tasa_moratoria
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       RETURNING *`,
       [
         solicitud_id,
@@ -99,7 +107,10 @@ const guardarCredito = async (req, res) => {
         tipo_servicio,
         aliado_id,
         seguro,
-        tasa_fija
+        tasa_fija,
+        aval_id,
+        pago_semanal,
+        tasa_moratoria
       ]
     );
 
@@ -122,9 +133,8 @@ const guardarCredito = async (req, res) => {
   }
 };
 
-
 // -------------------------------------------
-// Editar crédito (solo fechas)
+// Editar crédito (fechas + seguro si se requiere)
 // -------------------------------------------
 const editarCredito = async (req, res) => {
   const client = await pool.connect();
@@ -135,9 +145,9 @@ const editarCredito = async (req, res) => {
     const id_credito = req.params.id;
     const { fecha_ministracion, fecha_primer_pago, seguro } = req.body;
 
-    if (!fecha_ministracion && !fecha_primer_pago) {
+    if (!fecha_ministracion && !fecha_primer_pago && seguro === undefined) {
       return res.status(400).json({
-        error: "Debes enviar al menos fecha_ministracion o fecha_primer_pago"
+        error: "Debes enviar al menos fecha_ministracion, fecha_primer_pago o seguro"
       });
     }
 
@@ -153,7 +163,7 @@ const editarCredito = async (req, res) => {
       [
         fecha_ministracion || null,
         fecha_primer_pago || null,
-        seguro || null,
+        seguro !== undefined ? seguro : null,
         id_credito
       ]
     );
@@ -205,7 +215,6 @@ const eliminarCredito = async (req, res) => {
   }
 };
 
-
 // -------------------------------------------
 // Obtener todos los créditos
 // -------------------------------------------
@@ -225,7 +234,6 @@ const obtenerCreditos = async (req, res) => {
   }
 };
 
-
 // -------------------------------------------
 // Obtener créditos por cliente
 // -------------------------------------------
@@ -233,24 +241,29 @@ const obtenerCreditoPorCliente = async (req, res) => {
   try {
     const { cliente_id } = req.params;
 
-    const result = await pool.query(
-      `
+    // Validación rápida
+    if (!cliente_id) {
+      return res.status(400).json({ mensaje: "Falta el ID del cliente" });
+    }
+
+    const query = `
       SELECT c.*
       FROM credito c
       INNER JOIN solicitud s ON s.id_solicitud = c.solicitud_id
       WHERE s.cliente_id = $1
-      `,
-      [cliente_id]
-    );
+    `;
+
+    const result = await pool.query(query, [cliente_id]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ mensaje: "El cliente no tiene créditos" });
+      return res.status(404).json({ mensaje: "El cliente no tiene créditos registrados" });
     }
 
-    res.json(result.rows);
+    return res.status(200).json(result.rows);
 
   } catch (error) {
-    res.status(500).json({ error: "Error interno del servidor" });
+    console.error("Error al obtener créditos por cliente:", error);
+    return res.status(500).json({ error: "Error interno del servidor" });
   }
 };
 

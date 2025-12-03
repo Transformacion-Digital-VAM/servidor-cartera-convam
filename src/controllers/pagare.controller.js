@@ -223,13 +223,17 @@ const generarHojaControl = async (req, res) => {
   const { id_credito } = req.params;
 
   try {
+    // --- 1. OBTENER DATOS DEL CRÉDITO ---
     const queryCredito = `
-SELECT 
-        c.id_credito, c.tasa_fija, c.total_a_pagar, c.total_garantia,
-        c.pago_semanal, s.no_pagos, s.tipo_vencimiento, s.dia_pago
+      SELECT c.*,
+             s.no_pagos, s.dia_pago, s.tipo_vencimiento,
+             cli.nombre_cliente, cli.app_cliente, cli.apm_cliente,
+             al.nom_aliado
       FROM credito c
-      JOIN solicitud s ON c.solicitud_id = s.id_solicitud
-      WHERE c.id_credito = $1;
+      JOIN solicitud s ON s.id_solicitud = c.solicitud_id
+      JOIN cliente cli ON cli.id_cliente = s.cliente_id
+      JOIN aliado al ON al.id_aliado = c.aliado_id
+      WHERE c.id_credito = $1
     `;
 
     const creditoResult = await client.query(queryCredito, [id_credito]);
@@ -237,104 +241,118 @@ SELECT
     if (creditoResult.rowCount === 0)
       return res.status(404).json({ message: "Crédito no encontrado" });
 
-    const credito = creditoResult.rows[0];
+    const data = creditoResult.rows[0];
 
-    const querySemanas = `
-      SELECT no_pagos
-      FROM solicitud s
-      join credito c on s.id_solicitud = id_credito
-      WHERE id_credito = $1
-    `;
+    // --- 2. GENERAR CALENDARIO IGUAL QUE EL PAGARÉ ---
+    const monto = Number(data.total_capital);
+    const interes = Number(data.total_interes) / data.no_pagos;
+    const capitalPorPago = monto / data.no_pagos;
 
-   const semanasResult = await client.query(querySemanas, [id_credito]);
+    const primerPago = calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
+    const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
 
-    let saldoInicial = Number(credito.total_a_pagar);
-    let pago = Number(credito.pago_semanal);
+    // --- 3. ARMAR TABLA DE LA HOJA DE CONTROL ---
+    let saldoInicial = Number(data.total_a_pagar);
+    const pagoSemanal = Number(data.pago_semanal);
 
-    const tabla = semanasResult.rows.map((data) => {
-      const saldoFinal = saldoInicial - pago;
+    const tabla = calendario.map(p => {
+      const saldoFinal = saldoInicial - pagoSemanal;
 
       const fila = {
-        semana: data.semana,
-        fecha: new Date(data.fecha_pago).toLocaleDateString("es-MX"),
+        semana: p.numero,
+        fecha: p.fecha,
         saldo_inicial: saldoInicial.toFixed(2),
-        pago: pago.toFixed(2),
-        saldo_final: saldoFinal < 0 ? 0 : saldoFinal.toFixed(2),
+        pago: pagoSemanal.toFixed(2),
+        saldo_final: (saldoFinal < 0 ? 0 : saldoFinal).toFixed(2),
+        observaciones: ""
       };
 
       saldoInicial = saldoFinal;
       return fila;
     });
 
-    const encabezado = {
-      no_pagos: credito.no_pagos,
-      periodo: credito.tipo_vencimiento,
-      dia_pago: credito.dia_pago,
-      tasa_interes: credito.tasa_fija * 100,
-      saldo_inicial: credito.total_a_pagar,
-      garantias_ciclo: credito.total_garantia,
-      pago_pactado: credito.pago_semanal,
-    };
-
-    // ---------------------------------------------------------------------
-    // ********************    GENERAR PDF CON PUPPETEER    ****************
-    // ---------------------------------------------------------------------
-
-
-    // Template HTML para el PDF
+    // --- 4. TEMPLATE EXACTO COMO EL PDF QUE ENVIASTE ---
     const html = `
       <html>
       <head>
         <style>
-          body { font-family: Arial; padding: 20px; }
-          h1 { text-align: center; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          table, th, td { border: 1px solid black; }
-          th, td { padding: 6px; text-align: center; }
-          .header-box { background: #f0f0f0; padding: 10px; border-radius: 5px; }
+          body { 
+            font-family: Arial; 
+            padding: 40px; 
+            font-size: 12px;
+          }
+          h2 { text-align: center; margin-bottom: 0; }
+          .header-table td { padding: 3px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         </style>
       </head>
       <body>
+        <img 
+          src="https://drive.google.com/thumbnail?id=16Cf-Mz26xqZcr8y1rSJceD1ao6kVkaZp" 
+          alt="Logo" 
+          style="width: 100px; margin-bottom: 20px; display: block; margin-left: auto;">
+        
+        <h2 style="text-align:center; margin-top:20px">CONTROL INDIVIDUAL DE PAGOS Y GARANTÍAS</h2>
 
-        <h1>Hoja de Control</h1>
+        <p style="text-align:right"><strong>NOMBRE DE CLIENTE:</strong> ${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}</p>
+        <p style="text-align:right"><strong>RESPONSABLE:</strong> ${data.nom_aliado}</p>
 
-        <div class="header-box">
-          <p><strong>No. Pagos:</strong> ${encabezado.no_pagos}</p>
-          <p><strong>Periodo:</strong> ${encabezado.periodo}</p>
-          <p><strong>Día pago:</strong> ${encabezado.dia_pago}</p>
-          <p><strong>Tasa interés:</strong> ${encabezado.tasa_interes}%</p>
-          <p><strong>Saldo inicial:</strong> $${encabezado.saldo_inicial}</p>
-          <p><strong>Garantías ciclo:</strong> $${encabezado.garantias_ciclo}</p>
-          <p><strong>Pago pactado:</strong> $${encabezado.pago_pactado}</p>
-        </div>
+        <table style="width: 50%; text-align: left; border: 0; border-collapse: collapse;">
+          <tr>
+            <td>NO. DE PAGOS: <b>${data.no_pagos}</b></td>
+          </tr>
+          <tr>
+            <td>PERIODO: <b>${data.tipo_vencimiento}</b></td>
+          </tr>
+          <tr>
+            <td>DÍA DE PAGO: <b>${data.dia_pago}</b></td>
+          </tr>
+          <tr>
+            <td>TASA DE INTERÉS: <b>${(data.tasa_fija * 100).toFixed(2)}%</b></td>
+          </tr>
+          <tr>
+            <td>SALDO INICIAL: <b>$${data.total_a_pagar}</b></td>
+          </tr>
+          <tr>
+            <td>GARANTÍAS DEL CICLO: <b>$${data.total_garantia}</b></td>
+          </tr>
+          <tr>
+            <td>PAGO PACTADO: <b>$${pagoSemanal}</b></td>
+          </tr>
+        </table>
 
-        <table>
+        <table border="2">
           <thead>
             <tr>
-              <th>Semana</th>
-              <th>Fecha</th>
-              <th>Saldo inicial</th>
-              <th>Pago</th>
-              <th>Saldo final</th>
+              <th>SEM</th>
+              <th>FECHA</th>
+              <th>SALDO INICIAL</th>
+              <th>PAGO</th>
+              <th>SALDO FINAL</th>
+              <th>OBSERVACIONES</th>
             </tr>
           </thead>
           <tbody>
-            ${tabla.map(fila => `
+            ${tabla.map(r => `
               <tr>
-                <td>${fila.semana}</td>
-                <td>${fila.fecha}</td>
-                <td>$${fila.saldo_inicial}</td>
-                <td>$${fila.pago}</td>
-                <td>$${fila.saldo_final}</td>
+                <td style="text-align: right;">${r.semana}</td>
+                <td style="text-align: center;">${r.fecha}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             `).join("")}
           </tbody>
         </table>
 
+        <p style="margin-top: 70px; text-align: center; margin-bottom: 60px;"><strong>FIRMA DE ALIADA</strong></p>
+        <p style="text-align: center;">______________________________________________</p>
       </body>
       </html>
     `;
 
+    // --- 5. GENERAR PDF CON PUPPETEER ---
     const browser = await puppeteer.launch({ headless: "new" });
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
@@ -344,7 +362,7 @@ SELECT
     await page.pdf({ path: rutaPDF, format: "A4" });
     await browser.close();
 
-    res.json({ message: "Pagaré generado", pdf: rutaPDF });
+    res.json({ message: "Hoja de control generada", pdf: rutaPDF });
 
   } catch (error) {
     console.error("Error generando hoja de control:", error);
@@ -353,6 +371,7 @@ SELECT
     client.release();
   }
 };
+
 
 
 module.exports = { generarPagare, generarHojaControl };

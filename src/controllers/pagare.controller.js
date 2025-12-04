@@ -33,7 +33,7 @@ function generarCalendarioPagos(primerPago, capital, interes) {
   let fecha = new Date(primerPago);
 
   for (let i = 1; i <= 16; i++) {
-    calendario.push({
+  calendario.push({
       numero: i,
       fecha: fecha.toLocaleDateString("es-MX", {
         day: "numeric", month: "long", year: "numeric"
@@ -50,56 +50,119 @@ function generarCalendarioPagos(primerPago, capital, interes) {
 }
 
 const generarPagare = async (req, res) => {
+  const client = await pool.connect();
+
   try {
+    await client.query("BEGIN"); // 🟦 Empezamos transacción
+
     const { id_credito } = req.params;
 
+    // ================================
+    // 1. OBTENER DATOS DEL CRÉDITO
+    // ================================
     const resultado = await pool.query(`
-      SELECT c.*, 
+    SELECT c.*, 
              cli.nombre_cliente, cli.app_cliente, cli.apm_cliente, cli.direccion_id,
              d.calle, d.numero, d.localidad, d.municipio,
              a.nom_aliado,
-             s.dia_pago, tasa_interes,
-             av.nombre_aval, av.app_aval, av.apm_aval
+             s.dia_pago, s.no_pagos,
+             av.nombre_aval, av.app_aval, av.apm_aval,
+			 dav.calle AS calle_aval,
+		    dav.numero AS numero_aval,
+		    dav.localidad AS localidad_aval,
+		    dav.municipio AS municipio_aval
         FROM credito c
         JOIN solicitud s ON s.id_solicitud = c.solicitud_id
         JOIN cliente cli ON cli.id_cliente = s.cliente_id
         JOIN direccion d ON d.id_direccion = cli.direccion_id
         JOIN aliado a ON a.id_aliado = c.aliado_id
         JOIN aval av ON av.id_aval = c.aval_id
-WHERE c.id_credito = 22
-    `);
-      console.log(resultado.rows);
-    if (resultado.rows.length === 0)
+        JOIN direccion dav ON dav.id_direccion = av.direccion_id  
+      WHERE c.id_credito = $1
+    `, [id_credito]);
+
+    if (resultado.rows.length === 0) {
+      await client.query("ROLLBACK");
       return res.status(404).json({ error: "Crédito no encontrado" });
+    }
 
     const data = resultado.rows[0];
 
+    // ================================
+    // 2. CÁLCULOS DEL PAGARÉ
+    // ================================
     const monto = Number(data.total_capital);
     const interes = Number(data.total_interes) / 16;
-    const tasaInteres = Number(data.tasa_fija)*100;
+    const tasaInteres = Number(data.tasa_fija) * 100;
+
     const capitalPorPago = monto / 16;
-    const totalCapital = capitalPorPago * 16;
+    const totalCapital = monto;
     const totalInteres = interes * 16;
     const totalPagare = totalCapital + totalInteres;
 
     const cliente = `${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}`;
     const domicilio = `${data.calle} ${data.numero}, ${data.localidad}, ${data.municipio}`;
 
-    //Aval
-    const domicilioAval = `${data.calle} ${data.numero}, ${data.localidad}, ${data.municipio}`;
     const aval = `${data.nombre_aval} ${data.app_aval} ${data.apm_aval}`;
+    const domicilioAval = `${data.calle_aval} ${data.numero_aval}, ${data.localidad_aval}, ${data.municipio_aval}`;
+        const montoLetras = NumerosALetras(monto, {
+          plural: 'pesos',
+          singular: 'peso',
+          centPlural: 'centavos',
+          centSingular: 'centavo'
+        });
 
-    // CONVERSIÓN A LETRAS
-    const montoLetras = NumerosALetras(monto, {
-      plural: 'pesos',
-      singular: 'peso',
-      centPlural: 'centavos',
-      centSingular: 'centavo'
-    });
-
+    // ================================
+    // 3. GENERAR CALENDARIO
+    // ================================
     const primerPago = calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
     const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
 
+    // ================================
+    // 4. INSERTAR PAGARÉ EN BD
+    // ================================
+    const pagareInsert = await client.query(
+      `INSERT INTO pagare (
+         credito_id, ruta_archivo, total_capital, total_interes, total_a_pagar,
+         numero_pagos, dia_pago, fecha_primer_pago
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id_pagare`,
+      [
+        id_credito,
+        `pagare_${id_credito}.pdf`,
+        totalCapital,
+        totalInteres,
+        totalPagare,
+        16,
+        data.dia_pago,
+        primerPago
+      ]
+    );
+
+    const pagareId = pagareInsert.rows[0].id_pagare;
+
+    // ================================
+    // 5. INSERTAR CALENDARIO EN BD
+    // ================================
+    for (const p of calendario) {
+      await client.query(
+        `INSERT INTO calendario_pago (
+           pagare_id, numero_pago, fecha_vencimiento, capital, interes, total
+         ) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [
+          pagareId,
+          p.numero,
+          p.fecha_iso,
+          p.capital,
+          p.interes,
+          p.total
+        ]
+      );
+    }
+
+    // ================================
+    // 6. GENERAR PDF (TU HTML TAL CUAL)
+    // ================================
     const html = `
       <html>
       <style>
@@ -206,17 +269,26 @@ WHERE c.id_credito = 22
     await page.setContent(html, { waitUntil: "networkidle0" });
 
     const rutaPDF = path.join(__dirname, `../pagare_${id_credito}.pdf`);
-
     await page.pdf({ path: rutaPDF, format: "A4" });
     await browser.close();
 
-    res.json({ message: "Pagaré generado", pdf: rutaPDF });
+    await client.query("COMMIT");
 
-  } catch (e) {
-    console.log(e);
-    res.status(500).json({ error: "Error al generar pagaré" });
+    res.json({
+      message: "Pagaré generado y registrado correctamente",
+      pdf: rutaPDF,
+      pagare_id: pagareId
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.log("Error al generar pagaré:", error);
+    res.status(500).json({ error: "Error al generar pagaré", detalle: error.message });
+  } finally {
+    client.release();
   }
 };
+
 
 const generarHojaControl = async (req, res) => {
   const client = await pool.connect();

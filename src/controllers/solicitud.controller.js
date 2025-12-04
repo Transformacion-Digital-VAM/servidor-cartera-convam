@@ -385,7 +385,88 @@ const guardarGarantia = async (req, res) => {
   }
 };
 
+// -------------------------------------------------------------
+// ELIMINAR SOLICITUD
+// -------------------------------------------------------------
+const eliminarSolicitud = async (req, res) => {
+  const client = await pool.connect();
 
+  try {
+    const { id_solicitud } = req.params;
+
+    await client.query("BEGIN");
+
+    // 1. Verificar que la solicitud existe
+    const solicitud = await client.query(
+      `SELECT id_solicitud, aval_id 
+       FROM solicitud 
+       WHERE id_solicitud = $1`,
+      [id_solicitud]
+    );
+
+    if (solicitud.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Solicitud no encontrada" });
+    }
+
+    const { aval_id } = solicitud.rows[0];
+
+    // 2. Verificar si la solicitud tiene crédito asociado
+    const credito = await client.query(
+      `SELECT id_credito FROM credito WHERE solicitud_id = $1`,
+      [id_solicitud]
+    );
+
+    if (credito.rows.length > 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: "No se puede eliminar la solicitud",
+        detalle: "La solicitud ya tiene un crédito asociado"
+      });
+    }
+
+    // 3. Eliminar solicitud
+    await client.query(
+      `DELETE FROM solicitud WHERE id_solicitud = $1`,
+      [id_solicitud]
+    );
+
+    // 4. Verificar si el aval está asociado a otras solicitudes
+    if (aval_id) {
+      const avalUso = await client.query(
+        `SELECT COUNT(*) AS total 
+         FROM solicitud 
+         WHERE aval_id = $1`,
+        [aval_id]
+      );
+
+      if (Number(avalUso.rows[0].total) === 0) {
+        // 5. Eliminar aval
+        await client.query(
+          `DELETE FROM aval WHERE id_aval = $1`,
+          [aval_id]
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+
+    res.status(200).json({
+      message: "Solicitud eliminada correctamente",
+      aval_eliminado: aval_id ? "Se eliminó si no tenía más uso" : "No tenía aval"
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error al eliminar solicitud:", error);
+    res.status(500).json({
+      error: "Error al eliminar solicitud",
+      detalle: error.message
+    });
+  } finally {
+    client.release();
+  }
+};
 
 module.exports = {
   guardarSolicitud,
@@ -395,5 +476,6 @@ module.exports = {
   obtenerSolicitudesPorEstado,
   aprobarSolicitud,
   rechazarSolicitud,
-  guardarGarantia
+  guardarGarantia,
+  eliminarSolicitud
 };

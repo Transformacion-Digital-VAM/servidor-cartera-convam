@@ -41,18 +41,7 @@ const guardarCredito = async (req, res) => {
 
     const { monto_aprobado, aliado_id, aval_id } = solicitudResult.rows[0];
 
-    if (!aliado_id) {
-      return res.status(400).json({
-        error: "La solicitud no tiene un aliado asignado"
-      });
-    }
-
     const total_capital = Number(monto_aprobado);
-    if (!total_capital || total_capital <= 0) {
-      return res.status(400).json({
-        error: "La solicitud no tiene un monto aprobado válido"
-      });
-    }
 
     // -------------------------------------------
     // 2. Obtener tasa del aliado
@@ -75,7 +64,11 @@ const guardarCredito = async (req, res) => {
     const totalGarantia = total_capital * 0.10;
     const total_seguro = seguro ? 80 : 0;
     const totalAPagar = total_capital + totalInteres + total_seguro;
-    const pago_semanal = Number(totalAPagar) / 16;
+
+    const pago_semanal = totalAPagar / 16;
+
+    // Nuevo campo acorde al cambio en la BD
+    const saldo_restante = totalAPagar;
 
     // -------------------------------------------
     // 4. Insertar crédito según estructura REAL
@@ -87,9 +80,9 @@ const guardarCredito = async (req, res) => {
         total_capital, total_interes, total_seguro,
         total_a_pagar, total_garantia, tipo_servicio,
         aliado_id, seguro, tasa_fija, aval_id,
-        pago_semanal, tasa_moratoria
+        pago_semanal, tasa_moratoria, saldo_restante
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
       RETURNING *`,
       [
         solicitud_id,
@@ -109,7 +102,8 @@ const guardarCredito = async (req, res) => {
         tasa_fija,
         aval_id,
         pago_semanal,
-        tasa_moratoria
+        tasa_moratoria,
+        saldo_restante     // 👈 NUEVA COLUMNA
       ]
     );
 
@@ -133,7 +127,7 @@ const guardarCredito = async (req, res) => {
 };
 
 // -------------------------------------------
-// Editar crédito (fechas + seguro si se requiere)
+// Editar crédito
 // -------------------------------------------
 const editarCredito = async (req, res) => {
   const client = await pool.connect();
@@ -143,12 +137,6 @@ const editarCredito = async (req, res) => {
 
     const id_credito = req.params.id;
     const { fecha_ministracion, fecha_primer_pago, seguro } = req.body;
-
-    if (!fecha_ministracion && !fecha_primer_pago && seguro === undefined) {
-      return res.status(400).json({
-        error: "Debes enviar al menos fecha_ministracion, fecha_primer_pago o seguro"
-      });
-    }
 
     const result = await client.query(
       `
@@ -210,6 +198,7 @@ const eliminarCredito = async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ error: "Error interno del servidor" });
+    console.log("Error eliminarCredito:", error);
   }
 };
 
@@ -239,19 +228,15 @@ const obtenerCreditoPorCliente = async (req, res) => {
   try {
     const { cliente_id } = req.params;
 
-    // Validación rápida
-    if (!cliente_id) {
-      return res.status(400).json({ mensaje: "Falta el ID del cliente" });
-    }
-
-    const query = `
+    const result = await pool.query(
+      `
       SELECT c.*
       FROM credito c
       INNER JOIN solicitud s ON s.id_solicitud = c.solicitud_id
       WHERE s.cliente_id = $1
-    `;
-
-    const result = await pool.query(query, [cliente_id]);
+      `,
+      [cliente_id]
+    );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ mensaje: "El cliente no tiene créditos registrados" });
@@ -264,7 +249,6 @@ const obtenerCreditoPorCliente = async (req, res) => {
     return res.status(500).json({ error: "Error interno del servidor" });
   }
 };
-
 
 module.exports = {
   guardarCredito,

@@ -8,7 +8,6 @@ const guardarCredito = async (req, res) => {
 
   try {
     await client.query("BEGIN");
-
     const {
       solicitud_id,
       fecha_ministracion,
@@ -68,7 +67,7 @@ const guardarCredito = async (req, res) => {
     const pago_semanal = totalAPagar / 16;
 
     // Nuevo campo acorde al cambio en la BD
-    const saldo_restante = totalAPagar;
+    const saldo_pendiente = totalAPagar;
 
     // -------------------------------------------
     // 4. Insertar crédito según estructura REAL
@@ -80,9 +79,9 @@ const guardarCredito = async (req, res) => {
         total_capital, total_interes, total_seguro,
         total_a_pagar, total_garantia, tipo_servicio,
         aliado_id, seguro, tasa_fija, aval_id,
-        pago_semanal, tasa_moratoria, saldo_restante
+        pago_semanal, tasa_moratoria, saldo_pendiente, estado_credito
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, 'PENDIENTE')
       RETURNING *`,
       [
         solicitud_id,
@@ -103,7 +102,7 @@ const guardarCredito = async (req, res) => {
         aval_id,
         pago_semanal,
         tasa_moratoria,
-        saldo_restante     // 👈 NUEVA COLUMNA
+        saldo_pendiente
       ]
     );
 
@@ -136,21 +135,23 @@ const editarCredito = async (req, res) => {
     await client.query("BEGIN");
 
     const id_credito = req.params.id;
-    const { fecha_ministracion, fecha_primer_pago, seguro } = req.body;
+    const { fecha_ministracion, fecha_primer_pago, seguro, estado_credito } = req.body;
 
     const result = await client.query(
       `
       UPDATE credito SET
         fecha_ministracion = COALESCE($1, fecha_ministracion),
         fecha_primer_pago = COALESCE($2, fecha_primer_pago),
-        seguro = COALESCE($3, seguro)
-      WHERE id_credito = $4
+        seguro = COALESCE($3, seguro),
+        estado_credito = COALESCE($4, estado_credito)
+      WHERE id_credito = $5
       RETURNING *;
       `,
       [
         fecha_ministracion || null,
         fecha_primer_pago || null,
         seguro !== undefined ? seguro : null,
+        estado_credito !== undefined ? estado_credito : null,
         id_credito
       ]
     );
@@ -175,6 +176,42 @@ const editarCredito = async (req, res) => {
     client.release();
   }
 };
+
+// -------------------------------------------
+// Cambiar estado_credito del crédito (ENTREGADO / DEVOLUCIÓN)
+// -------------------------------------------
+const actualizarEstadoCredito = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado_credito } = req.body;
+
+    if (!["PENDIENTE", "ENTREGADO", "DEVOLUCIÓN"].includes(estado_credito)) {
+      return res.status(400).json({ error: "Estado inválido" });
+    }
+
+    const result = await pool.query(
+      `UPDATE credito
+       SET estado_credito = $1
+       WHERE id_credito = $2
+       RETURNING *`,
+      [estado_credito, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Crédito no encontrado" });
+    }
+
+    res.json({
+      message: "Estado actualizado correctamente",
+      credito: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("Error actualizarEstadoCredito:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+};
+
 
 // -------------------------------------------
 // Eliminar crédito
@@ -255,5 +292,6 @@ module.exports = {
   editarCredito,
   eliminarCredito,
   obtenerCreditos,
-  obtenerCreditoPorCliente
+  obtenerCreditoPorCliente,
+  actualizarEstadoCredito
 };

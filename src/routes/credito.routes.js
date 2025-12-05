@@ -5,12 +5,14 @@ const {
   editarCredito,
   eliminarCredito,
   obtenerCreditos,
-  obtenerCreditoPorCliente
+  obtenerCreditoPorCliente,
+  actualizarEstadoCredito
 } = require("../controllers/credito.controller");
 
 router.post("/", guardarCredito);
 router.put("/:id", editarCredito);
 router.delete("/:id", eliminarCredito);
+router.put("/:id/estado", actualizarEstadoCredito);
 
 router.get("/", obtenerCreditos);
 router.get("/cliente/:cliente_id", obtenerCreditoPorCliente);

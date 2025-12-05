@@ -16,10 +16,10 @@ const guardarCredito = async (req, res) => {
       // referencia_bancaria,
       tipo_credito,
       // cuenta_bancaria,
-      pago_semanal,
+      // pago_semanal,
       seguro,
       tipo_servicio = "Préstamo personal",
-      tasa_moratoria = 50
+      // tasa_moratoria = 50
     } = req.body;
 
     if (!solicitud_id) {
@@ -86,10 +86,9 @@ const guardarCredito = async (req, res) => {
         solicitud_id, fecha_ministracion, fecha_primer_pago, tipo_credito,
         total_capital, total_interes,pago_semanal, total_seguro,
         total_a_pagar, total_garantia, tipo_servicio,
-        aliado_id, seguro, tasa_fija, aval_id,
-        pago_semanal, tasa_moratoria
+        aliado_id, seguro, tasa_fija, aval_id
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING *`,
       [
         solicitud_id,
@@ -108,9 +107,8 @@ const guardarCredito = async (req, res) => {
         aliado_id,
         seguro,
         tasa_fija,
-        aval_id,
-        pago_semanal,
-        tasa_moratoria
+        aval_id
+        // tasa_moratoria
       ]
     );
 

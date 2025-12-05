@@ -4,6 +4,51 @@ const fs = require("fs");
 const path = require("path");
 const { NumerosALetras } = require("numero-a-letras");
 
+function formatearFechaParaBD(fechaString) {
+  // Convierte "9 de diciembre de 2025" a "2025-12-09"
+  const meses = {
+    'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+    'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+    'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+  };
+
+  const partes = fechaString.split(' de ');
+  if (partes.length !== 3) return null;
+
+  const dia = partes[0].padStart(2, '0');
+  const mes = meses[partes[1].toLowerCase()];
+  const año = partes[2];
+
+  return `${año}-${mes}-${dia}`;
+}
+
+// Modifica la función generarCalendarioPagos para incluir fecha ISO:
+function generarCalendarioPagos(primerPago, capital, interes) {
+  const calendario = [];
+  let fecha = new Date(primerPago);
+
+  for (let i = 1; i <= 16; i++) {
+    const fechaFormateada = fecha.toLocaleDateString("es-MX", {
+      day: "numeric", month: "long", year: "numeric"
+    });
+    
+    const fechaISO = fecha.toISOString().split('T')[0];
+    
+    calendario.push({
+      numero: i,
+      fecha: fechaFormateada,
+      fecha_iso: fechaISO,  // <-- Agregar esto
+      capital,
+      interes,
+      total: capital + interes
+    });
+
+    fecha.setDate(fecha.getDate() + 7);
+  }
+
+  return calendario;
+}
+
 function calcularPrimerPago(fechaMinistracion, diaPago) {
   const dias = {
     lunes: 1, martes: 2, miercoles: 3,
@@ -141,25 +186,42 @@ const generarPagare = async (req, res) => {
 
     const pagareId = pagareInsert.rows[0].id_pagare;
 
+
     // ================================
-    // 5. INSERTAR CALENDARIO EN BD
+    // 5. INSERTAR CALENDARIO EN BD (CORREGIDO)
     // ================================
     for (const p of calendario) {
+      // Convertir fecha de string a Date ISO
+      const fechaParts = p.fecha.split(' de ');
+      const meses = {
+        'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3,
+        'mayo': 4, 'junio': 5, 'julio': 6, 'agosto': 7,
+        'septiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11
+      };
+      
+      const dia = parseInt(fechaParts[0]);
+      const mes = meses[fechaParts[1]];
+      const año = parseInt(fechaParts[2]);
+      const fechaVencimiento = new Date(año, mes, dia);
+      
+      const totalSemana = p.capital + p.interes;
+
       await client.query(
         `INSERT INTO calendario_pago (
-           pagare_id, numero_pago, fecha_vencimiento, capital, interes, total
-         ) VALUES ($1,$2,$3,$4,$5,$6)`,
+          pagare_id, numero_pago, fecha_vencimiento, 
+          capital, interes, total_semana, total
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [
           pagareId,
           p.numero,
-          p.fecha_iso,
+          fechaVencimiento.toISOString().split('T')[0], // Formato YYYY-MM-DD
           p.capital,
           p.interes,
+          totalSemana,  // total_semana
           p.total
         ]
       );
     }
-
     // ================================
     // 6. GENERAR PDF (TU HTML TAL CUAL)
     // ================================

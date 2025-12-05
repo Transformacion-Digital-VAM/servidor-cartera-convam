@@ -4,6 +4,51 @@ const fs = require("fs");
 const path = require("path");
 const { NumerosALetras } = require("numero-a-letras");
 
+function formatearFechaParaBD(fechaString) {
+  // Convierte "9 de diciembre de 2025" a "2025-12-09"
+  const meses = {
+    'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+    'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+    'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+  };
+
+  const partes = fechaString.split(' de ');
+  if (partes.length !== 3) return null;
+
+  const dia = partes[0].padStart(2, '0');
+  const mes = meses[partes[1].toLowerCase()];
+  const año = partes[2];
+
+  return `${año}-${mes}-${dia}`;
+}
+
+// Modifica la función generarCalendarioPagos para incluir fecha ISO:
+function generarCalendarioPagos(primerPago, capital, interes) {
+  const calendario = [];
+  let fecha = new Date(primerPago);
+
+  for (let i = 1; i <= 16; i++) {
+    const fechaFormateada = fecha.toLocaleDateString("es-MX", {
+      day: "numeric", month: "long", year: "numeric"
+    });
+    
+    const fechaISO = fecha.toISOString().split('T')[0];
+    
+    calendario.push({
+      numero: i,
+      fecha: fechaFormateada,
+      fecha_iso: fechaISO,  // <-- Agregar esto
+      capital,
+      interes,
+      total: capital + interes
+    });
+
+    fecha.setDate(fecha.getDate() + 7);
+  }
+
+  return calendario;
+}
+
 function calcularPrimerPago(fechaMinistracion, diaPago) {
   const dias = {
     lunes: 1, martes: 2, miercoles: 3,
@@ -33,7 +78,7 @@ function generarCalendarioPagos(primerPago, capital, interes) {
   let fecha = new Date(primerPago);
 
   for (let i = 1; i <= 16; i++) {
-    calendario.push({
+  calendario.push({
       numero: i,
       fecha: fecha.toLocaleDateString("es-MX", {
         day: "numeric", month: "long", year: "numeric"
@@ -50,56 +95,136 @@ function generarCalendarioPagos(primerPago, capital, interes) {
 }
 
 const generarPagare = async (req, res) => {
+  const client = await pool.connect();
+
   try {
+    await client.query("BEGIN"); // 🟦 Empezamos transacción
+
     const { id_credito } = req.params;
 
+    // ================================
+    // 1. OBTENER DATOS DEL CRÉDITO
+    // ================================
     const resultado = await pool.query(`
-      SELECT c.*, 
+    SELECT c.*, 
              cli.nombre_cliente, cli.app_cliente, cli.apm_cliente, cli.direccion_id,
              d.calle, d.numero, d.localidad, d.municipio,
              a.nom_aliado,
-             s.dia_pago, tasa_interes,
-             av.nombre_aval, av.app_aval, av.apm_aval
+             s.dia_pago, s.no_pagos,
+             av.nombre_aval, av.app_aval, av.apm_aval,
+			 dav.calle AS calle_aval,
+		    dav.numero AS numero_aval,
+		    dav.localidad AS localidad_aval,
+		    dav.municipio AS municipio_aval
         FROM credito c
         JOIN solicitud s ON s.id_solicitud = c.solicitud_id
         JOIN cliente cli ON cli.id_cliente = s.cliente_id
         JOIN direccion d ON d.id_direccion = cli.direccion_id
         JOIN aliado a ON a.id_aliado = c.aliado_id
         JOIN aval av ON av.id_aval = c.aval_id
-WHERE c.id_credito = 22
-    `);
-      console.log(resultado.rows);
-    if (resultado.rows.length === 0)
+        JOIN direccion dav ON dav.id_direccion = av.direccion_id  
+      WHERE c.id_credito = $1
+    `, [id_credito]);
+
+    if (resultado.rows.length === 0) {
+      await client.query("ROLLBACK");
       return res.status(404).json({ error: "Crédito no encontrado" });
+    }
 
     const data = resultado.rows[0];
 
+    // ================================
+    // 2. CÁLCULOS DEL PAGARÉ
+    // ================================
     const monto = Number(data.total_capital);
     const interes = Number(data.total_interes) / 16;
-    const tasaInteres = Number(data.tasa_fija)*100;
+    const tasaInteres = Number(data.tasa_fija) * 100;
+
     const capitalPorPago = monto / 16;
-    const totalCapital = capitalPorPago * 16;
+    const totalCapital = monto;
     const totalInteres = interes * 16;
     const totalPagare = totalCapital + totalInteres;
 
     const cliente = `${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}`;
     const domicilio = `${data.calle} ${data.numero}, ${data.localidad}, ${data.municipio}`;
 
-    //Aval
-    const domicilioAval = `${data.calle} ${data.numero}, ${data.localidad}, ${data.municipio}`;
     const aval = `${data.nombre_aval} ${data.app_aval} ${data.apm_aval}`;
+    const domicilioAval = `${data.calle_aval} ${data.numero_aval}, ${data.localidad_aval}, ${data.municipio_aval}`;
+        const montoLetras = NumerosALetras(monto, {
+          plural: 'pesos',
+          singular: 'peso',
+          centPlural: 'centavos',
+          centSingular: 'centavo'
+        });
 
-    // CONVERSIÓN A LETRAS
-    const montoLetras = NumerosALetras(monto, {
-      plural: 'pesos',
-      singular: 'peso',
-      centPlural: 'centavos',
-      centSingular: 'centavo'
-    });
-
+    // ================================
+    // 3. GENERAR CALENDARIO
+    // ================================
     const primerPago = calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
     const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
 
+    // ================================
+    // 4. INSERTAR PAGARÉ EN BD
+    // ================================
+    const pagareInsert = await client.query(
+      `INSERT INTO pagare (
+         credito_id, ruta_archivo, total_capital, total_interes, total_a_pagar,
+         numero_pagos, dia_pago, fecha_primer_pago
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id_pagare`,
+      [
+        id_credito,
+        `pagare_${id_credito}.pdf`,
+        totalCapital,
+        totalInteres,
+        totalPagare,
+        16,
+        data.dia_pago,
+        primerPago
+      ]
+    );
+
+    const pagareId = pagareInsert.rows[0].id_pagare;
+
+
+    // ================================
+    // 5. INSERTAR CALENDARIO EN BD (CORREGIDO)
+    // ================================
+    for (const p of calendario) {
+      // Convertir fecha de string a Date ISO
+      const fechaParts = p.fecha.split(' de ');
+      const meses = {
+        'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3,
+        'mayo': 4, 'junio': 5, 'julio': 6, 'agosto': 7,
+        'septiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11
+      };
+      
+      const dia = parseInt(fechaParts[0]);
+      const mes = meses[fechaParts[1]];
+      const año = parseInt(fechaParts[2]);
+      const fechaVencimiento = new Date(año, mes, dia);
+      
+      const totalSemana = p.capital + p.interes;
+
+      await client.query(
+        `INSERT INTO calendario_pago (
+          pagare_id, numero_pago, fecha_vencimiento, 
+          capital, interes, total_semana, total
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [
+          pagareId,
+          p.numero,
+          fechaVencimiento.toISOString().split('T')[0], // Formato YYYY-MM-DD
+          p.capital,
+          p.interes,
+          totalSemana,  // total_semana
+          p.total
+        ]
+      );
+    }
+    // ================================
+    // 6. GENERAR PDF (TU HTML TAL CUAL)
+    // ================================
     const html = `
       <html>
       <style>
@@ -206,30 +331,43 @@ WHERE c.id_credito = 22
     await page.setContent(html, { waitUntil: "networkidle0" });
 
     const rutaPDF = path.join(__dirname, `../pagare_${id_credito}.pdf`);
-
     await page.pdf({ path: rutaPDF, format: "A4" });
     await browser.close();
 
-    res.json({ message: "Pagaré generado", pdf: rutaPDF });
+    await client.query("COMMIT");
 
-  } catch (e) {
-    console.log(e);
-    res.status(500).json({ error: "Error al generar pagaré" });
+    res.json({
+      message: "Pagaré generado y registrado correctamente",
+      pdf: rutaPDF,
+      pagare_id: pagareId
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.log("Error al generar pagaré:", error);
+    res.status(500).json({ error: "Error al generar pagaré", detalle: error.message });
+  } finally {
+    client.release();
   }
 };
+
 
 const generarHojaControl = async (req, res) => {
   const client = await pool.connect();
   const { id_credito } = req.params;
 
   try {
+    // --- 1. OBTENER DATOS DEL CRÉDITO ---
     const queryCredito = `
-SELECT 
-        c.id_credito, c.tasa_fija, c.total_a_pagar, c.total_garantia,
-        c.pago_semanal, s.no_pagos, s.tipo_vencimiento, s.dia_pago
+      SELECT c.*,
+             s.no_pagos, s.dia_pago, s.tipo_vencimiento,
+             cli.nombre_cliente, cli.app_cliente, cli.apm_cliente,
+             al.nom_aliado
       FROM credito c
-      JOIN solicitud s ON c.solicitud_id = s.id_solicitud
-      WHERE c.id_credito = $1;
+      JOIN solicitud s ON s.id_solicitud = c.solicitud_id
+      JOIN cliente cli ON cli.id_cliente = s.cliente_id
+      JOIN aliado al ON al.id_aliado = c.aliado_id
+      WHERE c.id_credito = $1
     `;
 
     const creditoResult = await client.query(queryCredito, [id_credito]);
@@ -237,104 +375,118 @@ SELECT
     if (creditoResult.rowCount === 0)
       return res.status(404).json({ message: "Crédito no encontrado" });
 
-    const credito = creditoResult.rows[0];
+    const data = creditoResult.rows[0];
 
-    const querySemanas = `
-      SELECT no_pagos
-      FROM solicitud s
-      join credito c on s.id_solicitud = id_credito
-      WHERE id_credito = $1
-    `;
+    // --- 2. GENERAR CALENDARIO IGUAL QUE EL PAGARÉ ---
+    const monto = Number(data.total_capital);
+    const interes = Number(data.total_interes) / data.no_pagos;
+    const capitalPorPago = monto / data.no_pagos;
 
-   const semanasResult = await client.query(querySemanas, [id_credito]);
+    const primerPago = calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
+    const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
 
-    let saldoInicial = Number(credito.total_a_pagar);
-    let pago = Number(credito.pago_semanal);
+    // --- 3. ARMAR TABLA DE LA HOJA DE CONTROL ---
+    let saldoInicial = Number(data.total_a_pagar);
+    const pagoSemanal = Number(data.pago_semanal);
 
-    const tabla = semanasResult.rows.map((data) => {
-      const saldoFinal = saldoInicial - pago;
+    const tabla = calendario.map(p => {
+      const saldoFinal = saldoInicial - pagoSemanal;
 
       const fila = {
-        semana: data.semana,
-        fecha: new Date(data.fecha_pago).toLocaleDateString("es-MX"),
+        semana: p.numero,
+        fecha: p.fecha,
         saldo_inicial: saldoInicial.toFixed(2),
-        pago: pago.toFixed(2),
-        saldo_final: saldoFinal < 0 ? 0 : saldoFinal.toFixed(2),
+        pago: pagoSemanal.toFixed(2),
+        saldo_final: (saldoFinal < 0 ? 0 : saldoFinal).toFixed(2),
+        observaciones: ""
       };
 
       saldoInicial = saldoFinal;
       return fila;
     });
 
-    const encabezado = {
-      no_pagos: credito.no_pagos,
-      periodo: credito.tipo_vencimiento,
-      dia_pago: credito.dia_pago,
-      tasa_interes: credito.tasa_fija * 100,
-      saldo_inicial: credito.total_a_pagar,
-      garantias_ciclo: credito.total_garantia,
-      pago_pactado: credito.pago_semanal,
-    };
-
-    // ---------------------------------------------------------------------
-    // ********************    GENERAR PDF CON PUPPETEER    ****************
-    // ---------------------------------------------------------------------
-
-
-    // Template HTML para el PDF
+    // --- 4. TEMPLATE EXACTO COMO EL PDF QUE ENVIASTE ---
     const html = `
       <html>
       <head>
         <style>
-          body { font-family: Arial; padding: 20px; }
-          h1 { text-align: center; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          table, th, td { border: 1px solid black; }
-          th, td { padding: 6px; text-align: center; }
-          .header-box { background: #f0f0f0; padding: 10px; border-radius: 5px; }
+          body { 
+            font-family: Arial; 
+            padding: 40px; 
+            font-size: 12px;
+          }
+          h2 { text-align: center; margin-bottom: 0; }
+          .header-table td { padding: 3px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         </style>
       </head>
       <body>
+        <img 
+          src="https://drive.google.com/thumbnail?id=16Cf-Mz26xqZcr8y1rSJceD1ao6kVkaZp" 
+          alt="Logo" 
+          style="width: 100px; margin-bottom: 20px; display: block; margin-left: auto;">
+        
+        <h2 style="text-align:center; margin-top:20px">CONTROL INDIVIDUAL DE PAGOS Y GARANTÍAS</h2>
 
-        <h1>Hoja de Control</h1>
+        <p style="text-align:right"><strong>NOMBRE DE CLIENTE:</strong> ${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}</p>
+        <p style="text-align:right"><strong>RESPONSABLE:</strong> ${data.nom_aliado}</p>
 
-        <div class="header-box">
-          <p><strong>No. Pagos:</strong> ${encabezado.no_pagos}</p>
-          <p><strong>Periodo:</strong> ${encabezado.periodo}</p>
-          <p><strong>Día pago:</strong> ${encabezado.dia_pago}</p>
-          <p><strong>Tasa interés:</strong> ${encabezado.tasa_interes}%</p>
-          <p><strong>Saldo inicial:</strong> $${encabezado.saldo_inicial}</p>
-          <p><strong>Garantías ciclo:</strong> $${encabezado.garantias_ciclo}</p>
-          <p><strong>Pago pactado:</strong> $${encabezado.pago_pactado}</p>
-        </div>
+        <table style="width: 50%; text-align: left; border: 0; border-collapse: collapse;">
+          <tr>
+            <td>NO. DE PAGOS: <b>${data.no_pagos}</b></td>
+          </tr>
+          <tr>
+            <td>PERIODO: <b>${data.tipo_vencimiento}</b></td>
+          </tr>
+          <tr>
+            <td>DÍA DE PAGO: <b>${data.dia_pago}</b></td>
+          </tr>
+          <tr>
+            <td>TASA DE INTERÉS: <b>${(data.tasa_fija * 100).toFixed(2)}%</b></td>
+          </tr>
+          <tr>
+            <td>SALDO INICIAL: <b>$${data.total_a_pagar}</b></td>
+          </tr>
+          <tr>
+            <td>GARANTÍAS DEL CICLO: <b>$${data.total_garantia}</b></td>
+          </tr>
+          <tr>
+            <td>PAGO PACTADO: <b>$${pagoSemanal}</b></td>
+          </tr>
+        </table>
 
-        <table>
+        <table border="2">
           <thead>
             <tr>
-              <th>Semana</th>
-              <th>Fecha</th>
-              <th>Saldo inicial</th>
-              <th>Pago</th>
-              <th>Saldo final</th>
+              <th>SEM</th>
+              <th>FECHA</th>
+              <th>SALDO INICIAL</th>
+              <th>PAGO</th>
+              <th>SALDO FINAL</th>
+              <th>OBSERVACIONES</th>
             </tr>
           </thead>
           <tbody>
-            ${tabla.map(fila => `
+            ${tabla.map(r => `
               <tr>
-                <td>${fila.semana}</td>
-                <td>${fila.fecha}</td>
-                <td>$${fila.saldo_inicial}</td>
-                <td>$${fila.pago}</td>
-                <td>$${fila.saldo_final}</td>
+                <td style="text-align: right;">${r.semana}</td>
+                <td style="text-align: center;">${r.fecha}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             `).join("")}
           </tbody>
         </table>
 
+        <p style="margin-top: 70px; text-align: center; margin-bottom: 60px;"><strong>FIRMA DE ALIADA</strong></p>
+        <p style="text-align: center;">______________________________________________</p>
       </body>
       </html>
     `;
 
+    // --- 5. GENERAR PDF CON PUPPETEER ---
     const browser = await puppeteer.launch({ headless: "new" });
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
@@ -344,7 +496,7 @@ SELECT
     await page.pdf({ path: rutaPDF, format: "A4" });
     await browser.close();
 
-    res.json({ message: "Pagaré generado", pdf: rutaPDF });
+    res.json({ message: "Hoja de control generada", pdf: rutaPDF });
 
   } catch (error) {
     console.error("Error generando hoja de control:", error);
@@ -353,6 +505,7 @@ SELECT
     client.release();
   }
 };
+
 
 
 module.exports = { generarPagare, generarHojaControl };

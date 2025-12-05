@@ -9,7 +9,8 @@ const {
   obtenerSolicitudesPorEstado,
   aprobarSolicitud,
   rechazarSolicitud,
-  guardarGarantia
+  guardarGarantia,
+  eliminarSolicitud
 } = require('../controllers/solicitud.controller');
 
 // Obtener todas las solicitudes
@@ -33,6 +34,8 @@ router.put('/aprobar/:id_solicitud', aprobarSolicitud);
 // Rechazar una solicitud
 router.put('/rechazar/:id_solicitud', rechazarSolicitud);
 
+// Eliminar una solicitud
+router.delete('/:id_solicitud', eliminarSolicitud);
 
 // Garantias
 router.post('/garantia', guardarGarantia);

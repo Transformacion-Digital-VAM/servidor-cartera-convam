@@ -273,9 +273,10 @@ const eliminarCliente = async (req, res) => {
     // 0. Obtener avales asociados mediante solicitud
     const avales = await client.query(`
       SELECT av.id_aval 
-      FROM aval av
-      JOIN solicitud s ON s.id_aval = av.id_aval
-      WHERE s.cliente_id = $1
+        FROM aval av
+        JOIN credito c ON c.aval_id = av.id_aval
+        JOIN solicitud s ON s.id_solicitud = c.solicitud_id
+        WHERE s.cliente_id = $1;
     `, [id_cliente]);
 
     // 1. Eliminar solicitudes asociadas al cliente

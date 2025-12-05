@@ -8,7 +8,6 @@ const guardarCredito = async (req, res) => {
 
   try {
     await client.query("BEGIN");
-
     const {
       solicitud_id,
       fecha_ministracion,
@@ -42,18 +41,7 @@ const guardarCredito = async (req, res) => {
 
     const { monto_aprobado, aliado_id, aval_id } = solicitudResult.rows[0];
 
-    if (!aliado_id) {
-      return res.status(400).json({
-        error: "La solicitud no tiene un aliado asignado"
-      });
-    }
-
     const total_capital = Number(monto_aprobado);
-    if (!total_capital || total_capital <= 0) {
-      return res.status(400).json({
-        error: "La solicitud no tiene un monto aprobado válido"
-      });
-    }
 
     // -------------------------------------------
     // 2. Obtener tasa del aliado
@@ -76,7 +64,11 @@ const guardarCredito = async (req, res) => {
     const totalGarantia = total_capital * 0.10;
     const total_seguro = seguro ? 80 : 0;
     const totalAPagar = total_capital + totalInteres + total_seguro;
-    const pago_semanal = Number(totalAPagar) / 16;
+
+    const pago_semanal = totalAPagar / 16;
+
+    // Nuevo campo acorde al cambio en la BD
+    const saldo_pendiente = totalAPagar;
 
     // -------------------------------------------
     // 4. Insertar crédito según estructura REAL
@@ -86,9 +78,10 @@ const guardarCredito = async (req, res) => {
         solicitud_id, fecha_ministracion, fecha_primer_pago, tipo_credito,
         total_capital, total_interes,pago_semanal, total_seguro,
         total_a_pagar, total_garantia, tipo_servicio,
-        aliado_id, seguro, tasa_fija, aval_id
+        aliado_id, seguro, tasa_fija, aval_id,
+        pago_semanal, tasa_moratoria, saldo_pendiente, estado_credito
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, 'PENDIENTE')
       RETURNING *`,
       [
         solicitud_id,
@@ -107,8 +100,10 @@ const guardarCredito = async (req, res) => {
         aliado_id,
         seguro,
         tasa_fija,
-        aval_id
-        // tasa_moratoria
+        aval_id,
+        pago_semanal,
+        tasa_moratoria,
+        saldo_pendiente
       ]
     );
 
@@ -132,7 +127,7 @@ const guardarCredito = async (req, res) => {
 };
 
 // -------------------------------------------
-// Editar crédito (fechas + seguro si se requiere)
+// Editar crédito
 // -------------------------------------------
 const editarCredito = async (req, res) => {
   const client = await pool.connect();
@@ -141,27 +136,23 @@ const editarCredito = async (req, res) => {
     await client.query("BEGIN");
 
     const id_credito = req.params.id;
-    const { fecha_ministracion, fecha_primer_pago, seguro } = req.body;
-
-    if (!fecha_ministracion && !fecha_primer_pago && seguro === undefined) {
-      return res.status(400).json({
-        error: "Debes enviar al menos fecha_ministracion, fecha_primer_pago o seguro"
-      });
-    }
+    const { fecha_ministracion, fecha_primer_pago, seguro, estado_credito } = req.body;
 
     const result = await client.query(
       `
       UPDATE credito SET
         fecha_ministracion = COALESCE($1, fecha_ministracion),
         fecha_primer_pago = COALESCE($2, fecha_primer_pago),
-        seguro = COALESCE($3, seguro)
-      WHERE id_credito = $4
+        seguro = COALESCE($3, seguro),
+        estado_credito = COALESCE($4, estado_credito)
+      WHERE id_credito = $5
       RETURNING *;
       `,
       [
         fecha_ministracion || null,
         fecha_primer_pago || null,
         seguro !== undefined ? seguro : null,
+        estado_credito !== undefined ? estado_credito : null,
         id_credito
       ]
     );
@@ -184,6 +175,41 @@ const editarCredito = async (req, res) => {
     res.status(500).json({ error: "Error interno del servidor" });
   } finally {
     client.release();
+  }
+};
+
+// -------------------------------------------
+// Cambiar estado_credito del crédito (ENTREGADO / DEVOLUCIÓN)
+// -------------------------------------------
+const actualizarEstadoCredito = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado_credito } = req.body;
+
+    if (!["PENDIENTE", "ENTREGADO", "DEVOLUCIÓN"].includes(estado_credito)) {
+      return res.status(400).json({ error: "Estado inválido" });
+    }
+
+    const result = await pool.query(
+      `UPDATE credito
+       SET estado_credito = $1
+       WHERE id_credito = $2
+       RETURNING *`,
+      [estado_credito, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Crédito no encontrado" });
+    }
+
+    res.json({
+      message: "Estado actualizado correctamente",
+      credito: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("Error actualizarEstadoCredito:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
   }
 };
 
@@ -210,6 +236,7 @@ const eliminarCredito = async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ error: "Error interno del servidor" });
+    console.log("Error eliminarCredito:", error);
   }
 };
 
@@ -239,19 +266,15 @@ const obtenerCreditoPorCliente = async (req, res) => {
   try {
     const { cliente_id } = req.params;
 
-    // Validación rápida
-    if (!cliente_id) {
-      return res.status(400).json({ mensaje: "Falta el ID del cliente" });
-    }
-
-    const query = `
+    const result = await pool.query(
+      `
       SELECT c.*
       FROM credito c
       INNER JOIN solicitud s ON s.id_solicitud = c.solicitud_id
       WHERE s.cliente_id = $1
-    `;
-
-    const result = await pool.query(query, [cliente_id]);
+      `,
+      [cliente_id]
+    );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ mensaje: "El cliente no tiene créditos registrados" });
@@ -265,11 +288,11 @@ const obtenerCreditoPorCliente = async (req, res) => {
   }
 };
 
-
 module.exports = {
   guardarCredito,
   editarCredito,
   eliminarCredito,
   obtenerCreditos,
-  obtenerCreditoPorCliente
+  obtenerCreditoPorCliente,
+  actualizarEstadoCredito
 };

@@ -327,10 +327,28 @@ const eliminarPago = async (req, res) => {
   }
 };
 
+
+const consultarPagosPorCredito = async (req, res) => {
+  const { credito_id } = req.params;
+  
+  try {
+    const resultado = await pool.query(`
+      SELECT * FROM pago WHERE credito_id = $1 ORDER BY fecha_operacion DESC
+    `, [credito_id]);
+    
+    res.json(resultado.rows);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Error al consultar pagos del crédito' });
+  }
+};
+
+
 module.exports = {
   registrarPago,
   consultarPagos,
   consultarPagosCliente,
+  consultarPagosPorCredito,
   editarPago,
   eliminarPago
 };

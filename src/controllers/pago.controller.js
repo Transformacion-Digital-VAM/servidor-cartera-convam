@@ -14,7 +14,7 @@ const registrarPago = async (req, res) => {
       credito_id,
       moratorios = 0,
       pago_registrado = 0,
-      tipo_pago = 'PAGO NORMAL',
+      tipo_pago,
       registrado_por
     } = req.body;
 
@@ -123,7 +123,7 @@ const registrarPago = async (req, res) => {
 
     // Verificar mora para cada semana vencida
     const hoy = new Date();
-    
+
     for (const semana of semanasRes.rows) {
       if (montoRestante <= 0) break;
 
@@ -134,7 +134,7 @@ const registrarPago = async (req, res) => {
       const capitalSemana = Number(semana.capital) || 0;
       const interesSemana = Number(semana.interes) || 0;
       const fechaVencimiento = new Date(semana.fecha_vencimiento);
-      
+
       // Calcular mora si la fecha de vencimiento ya pasó y no está pagada
       let moraCalculada = 0;
       if (fechaVencimiento < hoy && semana.estatus !== 'PAGADO') {
@@ -159,7 +159,7 @@ const registrarPago = async (req, res) => {
       // Calcular cuánto aplicar de este pago
       const aplicar = Math.min(montoRestante, faltanteSemana);
       const proporcion = aplicar / totalSemana;
-      
+
       const capitalAAplicar = capitalSemana * proporcion;
       const interesAAplicar = interesSemana * proporcion;
 
@@ -213,20 +213,20 @@ const registrarPago = async (req, res) => {
 
     return res.status(201).json({
       message: 'Pago registrado correctamente',
-      pago: { 
-        ...pagoRow, 
-        capital_pagado: acumuladoCapital, 
-        interes_pagado: acumuladoInteres, 
-        saldo_despues: (nuevoSaldoPendiente < 0 ? 0 : nuevoSaldoPendiente) 
+      pago: {
+        ...pagoRow,
+        capital_pagado: acumuladoCapital,
+        interes_pagado: acumuladoInteres,
+        saldo_despues: (nuevoSaldoPendiente < 0 ? 0 : nuevoSaldoPendiente)
       },
       nuevo_saldo: (nuevoSaldoPendiente < 0 ? 0 : nuevoSaldoPendiente)
     });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error al registrar pago:', error);
-    return res.status(500).json({ 
-      error: 'Error interno del servidor', 
-      detalle: error.message 
+    return res.status(500).json({
+      error: 'Error interno del servidor',
+      detalle: error.message
     });
   } finally {
     client.release();
@@ -327,10 +327,28 @@ const eliminarPago = async (req, res) => {
   }
 };
 
+
+const consultarPagosPorCredito = async (req, res) => {
+  const { credito_id } = req.params;
+
+  try {
+    const resultado = await pool.query(`
+      SELECT * FROM pago WHERE credito_id = $1 ORDER BY fecha_operacion DESC
+    `, [credito_id]);
+
+    res.json(resultado.rows);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Error al consultar pagos del crédito' });
+  }
+};
+
+
 module.exports = {
   registrarPago,
   consultarPagos,
   consultarPagosCliente,
+  consultarPagosPorCredito,
   editarPago,
   eliminarPago
 };

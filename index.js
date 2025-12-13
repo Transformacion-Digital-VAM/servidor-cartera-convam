@@ -1,6 +1,6 @@
 const express = require('express');
-const cors = require('cors'); // 👈 importa cors
-const pool = require('./src/config/db'); 
+const cors = require('cors');
+const pool = require('./src/config/db');
 const usuarioRoutes = require('./src/routes/usuario.routes');
 const rolRoutes = require('./src/routes/rol.routes');
 const authRoutes = require('./src/routes/auth.routes');
@@ -10,6 +10,7 @@ const creditoRoutes = require('./src/routes/credito.routes');
 const aliadoRoutes = require('./src/routes/aliado.routes');
 const pagareRoutes = require('./src/routes/pagare.routes');
 const pagoRoutes = require('./src/routes/pago.routes');
+const reporteRoutes = require('./src/routes/reporte.routes');
 const app = express();
 
 // Habilitar CORS para permitir solicitudes desde Angular
@@ -44,6 +45,7 @@ app.use('/credito', creditoRoutes);
 app.use('/aliado', aliadoRoutes);
 app.use('/pagare', pagareRoutes);
 app.use('/pago', pagoRoutes);
+app.use('/reporte', reporteRoutes);
 
 const PORT = 3000;
 app.listen(PORT, () => {

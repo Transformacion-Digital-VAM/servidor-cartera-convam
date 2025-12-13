@@ -1,8 +1,12 @@
+
+
 const pool = require("../config/db");
-const puppeteer = require("puppeteer");
 const fs = require("fs");
 const path = require("path");
 const { NumerosALetras } = require("numero-a-letras");
+const puppeteer = require("puppeteer");
+
+
 
 function formatearFechaParaBD(fechaString) {
   // Convierte "9 de diciembre de 2025" a "2025-12-09"
@@ -31,9 +35,9 @@ function generarCalendarioPagos(primerPago, capital, interes) {
     const fechaFormateada = fecha.toLocaleDateString("es-MX", {
       day: "numeric", month: "long", year: "numeric"
     });
-    
+
     const fechaISO = fecha.toISOString().split('T')[0];
-    
+
     calendario.push({
       numero: i,
       fecha: fechaFormateada,
@@ -72,13 +76,13 @@ function calcularPrimerPago(fechaMinistracion, diaPago) {
 
   return fechaPago;
 }
-  
+
 function generarCalendarioPagos(primerPago, capital, interes) {
   const calendario = [];
   let fecha = new Date(primerPago);
 
   for (let i = 1; i <= 16; i++) {
-  calendario.push({
+    calendario.push({
       numero: i,
       fecha: fecha.toLocaleDateString("es-MX", {
         day: "numeric", month: "long", year: "numeric"
@@ -94,35 +98,41 @@ function generarCalendarioPagos(primerPago, capital, interes) {
   return calendario;
 }
 
+const browser = puppeteer.launch({
+  headless: "new",
+  args: [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+  ],
+});
 const generarPagare = async (req, res) => {
   const client = await pool.connect();
 
   try {
-    await client.query("BEGIN"); // 🟦 Empezamos transacción
-
+    await client.query("BEGIN");
     const { id_credito } = req.params;
 
     // ================================
     // 1. OBTENER DATOS DEL CRÉDITO
     // ================================
     const resultado = await pool.query(`
-    SELECT c.*, 
+      SELECT c.*, 
              cli.nombre_cliente, cli.app_cliente, cli.apm_cliente, cli.direccion_id,
              d.calle, d.numero, d.localidad, d.municipio,
              a.nom_aliado,
              s.dia_pago, s.no_pagos,
              av.nombre_aval, av.app_aval, av.apm_aval,
-			 dav.calle AS calle_aval,
-		    dav.numero AS numero_aval,
-		    dav.localidad AS localidad_aval,
-		    dav.municipio AS municipio_aval
-        FROM credito c
-        JOIN solicitud s ON s.id_solicitud = c.solicitud_id
-        JOIN cliente cli ON cli.id_cliente = s.cliente_id
-        JOIN direccion d ON d.id_direccion = cli.direccion_id
-        JOIN aliado a ON a.id_aliado = c.aliado_id
-        JOIN aval av ON av.id_aval = c.aval_id
-        JOIN direccion dav ON dav.id_direccion = av.direccion_id  
+             dav.calle AS calle_aval,
+             dav.numero AS numero_aval,
+             dav.localidad AS localidad_aval,
+             dav.municipio AS municipio_aval
+      FROM credito c
+      JOIN solicitud s ON s.id_solicitud = c.solicitud_id
+      JOIN cliente cli ON cli.id_cliente = s.cliente_id
+      JOIN direccion d ON d.id_direccion = cli.direccion_id
+      JOIN aliado a ON a.id_aliado = c.aliado_id
+      JOIN aval av ON av.id_aval = c.aval_id
+      JOIN direccion dav ON dav.id_direccion = av.direccion_id  
       WHERE c.id_credito = $1
     `, [id_credito]);
 
@@ -147,15 +157,15 @@ const generarPagare = async (req, res) => {
 
     const cliente = `${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}`;
     const domicilio = `${data.calle} ${data.numero}, ${data.localidad}, ${data.municipio}`;
-
     const aval = `${data.nombre_aval} ${data.app_aval} ${data.apm_aval}`;
     const domicilioAval = `${data.calle_aval} ${data.numero_aval}, ${data.localidad_aval}, ${data.municipio_aval}`;
-        const montoLetras = NumerosALetras(monto, {
-          plural: 'pesos',
-          singular: 'peso',
-          centPlural: 'centavos',
-          centSingular: 'centavo'
-        });
+
+    const montoLetras = NumerosALetras(monto, {
+      plural: 'pesos',
+      singular: 'peso',
+      centPlural: 'centavos',
+      centSingular: 'centavo'
+    });
 
     // ================================
     // 3. GENERAR CALENDARIO
@@ -186,24 +196,22 @@ const generarPagare = async (req, res) => {
 
     const pagareId = pagareInsert.rows[0].id_pagare;
 
-
     // ================================
-    // 5. INSERTAR CALENDARIO EN BD (CORREGIDO)
+    // 5. INSERTAR CALENDARIO EN BD
     // ================================
     for (const p of calendario) {
-      // Convertir fecha de string a Date ISO
       const fechaParts = p.fecha.split(' de ');
       const meses = {
         'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3,
         'mayo': 4, 'junio': 5, 'julio': 6, 'agosto': 7,
         'septiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11
       };
-      
+
       const dia = parseInt(fechaParts[0]);
       const mes = meses[fechaParts[1]];
       const año = parseInt(fechaParts[2]);
       const fechaVencimiento = new Date(año, mes, dia);
-      
+
       const totalSemana = p.capital + p.interes;
 
       await client.query(
@@ -214,16 +222,17 @@ const generarPagare = async (req, res) => {
         [
           pagareId,
           p.numero,
-          fechaVencimiento.toISOString().split('T')[0], // Formato YYYY-MM-DD
+          fechaVencimiento.toISOString().split('T')[0],
           p.capital,
           p.interes,
-          totalSemana,  // total_semana
+          totalSemana,
           p.total
         ]
       );
     }
+
     // ================================
-    // 6. GENERAR PDF (TU HTML TAL CUAL)
+    // 6. GENERAR PDF
     // ================================
     const html = `
       <html>
@@ -309,7 +318,7 @@ const generarPagare = async (req, res) => {
             </tr>
             <tr>
               <td><b> Nombre:</b> ${cliente}</td>
-			        <td><b>Nombre:</b> ${aval}</td>
+              <td><b>Nombre:</b> ${aval}</td>
             </tr>
             <tr>
               <td><b>Domicilio:</b> ${domicilio}</td>
@@ -319,38 +328,64 @@ const generarPagare = async (req, res) => {
               <td><b>Población:</b> Dolores Hidalgo, Gto</td>
               <td><b>Población:</b> Dolores Hidalgo, Gto</td>
             </tr>
-			
-			
         </table>
       </body>
       </html>
     `;
 
-    const browser = await puppeteer.launch({ headless: "new" });
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
 
-    const rutaPDF = path.join(__dirname, `../pagare_${id_credito}.pdf`);
-    await page.pdf({ path: rutaPDF, format: "A4" });
+    // Crear directorio si no existe
+    const pdfDir = path.join(__dirname, '../pdfs');
+    if (!fs.existsSync(pdfDir)) {
+      fs.mkdirSync(pdfDir, { recursive: true });
+    }
+
+    const rutaPDF = path.join(pdfDir, `pagare_${id_credito}.pdf`);
+
+    await page.pdf({
+      path: rutaPDF,
+      format: "A4",
+      printBackground: true,
+      margin: {
+        top: '0.5cm',
+        bottom: '0.5cm',
+        left: '0.5cm',
+        right: '0.5cm'
+      }
+    });
+
     await browser.close();
 
     await client.query("COMMIT");
 
-    res.json({
-      message: "Pagaré generado y registrado correctamente",
-      pdf: rutaPDF,
-      pagare_id: pagareId
-    });
+    // ================================
+    // 7. ENVIAR ARCHIVO PDF COMO RESPUESTA
+    // ================================
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="pagare_${id_credito}.pdf"`);
+
+    // Leer y enviar el archivo
+    const pdfBuffer = fs.readFileSync(rutaPDF);
+    res.send(pdfBuffer);
 
   } catch (error) {
     await client.query("ROLLBACK");
-    console.log("Error al generar pagaré:", error);
-    res.status(500).json({ error: "Error al generar pagaré", detalle: error.message });
+    console.error("Error al generar pagaré:", error);
+    res.status(500).json({
+      error: "Error al generar pagaré",
+      detalle: error.message
+    });
   } finally {
     client.release();
   }
 };
-
 
 const generarHojaControl = async (req, res) => {
   const client = await pool.connect();
@@ -372,12 +407,13 @@ const generarHojaControl = async (req, res) => {
 
     const creditoResult = await client.query(queryCredito, [id_credito]);
 
-    if (creditoResult.rowCount === 0)
+    if (creditoResult.rowCount === 0) {
       return res.status(404).json({ message: "Crédito no encontrado" });
+    }
 
     const data = creditoResult.rows[0];
 
-    // --- 2. GENERAR CALENDARIO IGUAL QUE EL PAGARÉ ---
+    // --- 2. GENERAR CALENDARIO ---
     const monto = Number(data.total_capital);
     const interes = Number(data.total_interes) / data.no_pagos;
     const capitalPorPago = monto / data.no_pagos;
@@ -391,7 +427,6 @@ const generarHojaControl = async (req, res) => {
 
     const tabla = calendario.map(p => {
       const saldoFinal = saldoInicial - pagoSemanal;
-
       const fila = {
         semana: p.numero,
         fecha: p.fecha,
@@ -400,12 +435,11 @@ const generarHojaControl = async (req, res) => {
         saldo_final: (saldoFinal < 0 ? 0 : saldoFinal).toFixed(2),
         observaciones: ""
       };
-
       saldoInicial = saldoFinal;
       return fila;
     });
 
-    // --- 4. TEMPLATE EXACTO COMO EL PDF QUE ENVIASTE ---
+    // --- 4. TEMPLATE HTML ---
     const html = `
       <html>
       <head>
@@ -421,11 +455,6 @@ const generarHojaControl = async (req, res) => {
         </style>
       </head>
       <body>
-        <img 
-          src="https://drive.google.com/thumbnail?id=16Cf-Mz26xqZcr8y1rSJceD1ao6kVkaZp" 
-          alt="Logo" 
-          style="width: 100px; margin-bottom: 20px; display: block; margin-left: auto;">
-        
         <h2 style="text-align:center; margin-top:20px">CONTROL INDIVIDUAL DE PAGOS Y GARANTÍAS</h2>
 
         <p style="text-align:right"><strong>NOMBRE DE CLIENTE:</strong> ${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}</p>
@@ -469,8 +498,8 @@ const generarHojaControl = async (req, res) => {
           <tbody>
             ${tabla.map(r => `
               <tr>
-                <td style="text-align: right;">${r.semana}</td>
-                <td style="text-align: center;">${r.fecha}</td>
+                <td style="text-align: center;">${r.semana}</td>
+                <td style="text-align: left;">${r.fecha}</td>
                 <td></td>
                 <td></td>
                 <td></td>
@@ -487,20 +516,43 @@ const generarHojaControl = async (req, res) => {
     `;
 
     // --- 5. GENERAR PDF CON PUPPETEER ---
-    const browser = await puppeteer.launch({ headless: "new" });
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
 
-    const rutaPDF = path.join(__dirname, `../hoja-control_${id_credito}.pdf`);
+    // Crear directorio si no existe
+    const pdfDir = path.join(__dirname, '../pdfs');
+    if (!fs.existsSync(pdfDir)) {
+      fs.mkdirSync(pdfDir, { recursive: true });
+    }
 
-    await page.pdf({ path: rutaPDF, format: "A4" });
+    const rutaPDF = path.join(pdfDir, `hoja-control_${id_credito}.pdf`);
+
+    await page.pdf({
+      path: rutaPDF,
+      format: "A4",
+      printBackground: true
+    });
+
     await browser.close();
 
-    res.json({ message: "Hoja de control generada", pdf: rutaPDF });
+    // --- 6. ENVIAR ARCHIVO PDF ---
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="hoja-control_${id_credito}.pdf"`);
+
+    const pdfBuffer = fs.readFileSync(rutaPDF);
+    res.send(pdfBuffer);
 
   } catch (error) {
     console.error("Error generando hoja de control:", error);
-    res.status(500).json({ message: "Error interno", error });
+    res.status(500).json({
+      message: "Error interno",
+      error: error.message
+    });
   } finally {
     client.release();
   }

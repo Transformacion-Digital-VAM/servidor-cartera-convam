@@ -59,10 +59,10 @@ const guardarCredito = async (req, res) => {
     // -------------------------------------------
     // 3. Calcular costos
     // -------------------------------------------
-    const totalInteres = (total_capital * tasa_fija) / 4 * 16;    
+    const totalInteres = (total_capital * tasa_fija) / 4 * 16;
     const totalGarantia = total_capital * 0.10;
     const total_seguro = seguro ? 80 : 0;
-    const totalAPagar = total_capital + totalInteres + total_seguro;
+    const totalAPagar = total_capital + totalInteres;
 
     const pago_semanal = totalAPagar / 16;
 
@@ -178,14 +178,14 @@ const editarCredito = async (req, res) => {
 };
 
 // -------------------------------------------
-// Cambiar estado_credito del crédito (ENTREGADO / DEVOLUCIÓN)
+// Cambiar estado_credito del crédito (ENTREGADO / DEVOLUCION)
 // -------------------------------------------
 const actualizarEstadoCredito = async (req, res) => {
   try {
     const { id } = req.params;
     const { estado_credito } = req.body;
 
-    if (!["PENDIENTE", "ENTREGADO", "DEVOLUCIÓN"].includes(estado_credito)) {
+    if (!["PENDIENTE", "ENTREGADO", "DEVOLUCION"].includes(estado_credito)) {
       return res.status(400).json({ error: "Estado inválido" });
     }
 
@@ -242,18 +242,44 @@ const eliminarCredito = async (req, res) => {
 // -------------------------------------------
 // Obtener todos los créditos
 // -------------------------------------------
+// const obtenerCreditos = async (req, res) => {
+//   try {
+//     const result = await pool.query(`
+//       SELECT c.*, s.cliente_id
+//       FROM credito c
+//       LEFT JOIN solicitud s ON s.id_solicitud = c.solicitud_id
+//       ORDER BY c.id_credito DESC
+//     `);
+
+//     res.json(result.rows);
+
+//   } catch (error) {
+//     res.status(500).json({ error: "Error interno del servidor" });
+//   }
+// };
+// credito.controller.js - Modificar la función obtenerCreditos
 const obtenerCreditos = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT c.*, s.cliente_id
+      SELECT 
+        c.*, 
+        s.cliente_id,
+        cl.nombre_cliente,
+        cl.app_cliente,
+        cl.apm_cliente,
+        a.nom_aliado,
+        a.tasa_fija
       FROM credito c
       LEFT JOIN solicitud s ON s.id_solicitud = c.solicitud_id
+      LEFT JOIN cliente cl ON cl.id_cliente = s.cliente_id
+      LEFT JOIN aliado a ON a.id_aliado = c.aliado_id
       ORDER BY c.id_credito DESC
     `);
 
     res.json(result.rows);
 
   } catch (error) {
+    console.error("Error al obtener créditos:", error);
     res.status(500).json({ error: "Error interno del servidor" });
   }
 };

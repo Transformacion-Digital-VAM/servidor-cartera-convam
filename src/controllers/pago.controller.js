@@ -335,7 +335,6 @@ const consultarPagosPorCredito = async (req, res) => {
     const resultado = await pool.query(`
       SELECT * FROM pago WHERE credito_id = $1 ORDER BY fecha_operacion DESC
     `, [credito_id]);
-
     res.json(resultado.rows);
   } catch (error) {
     console.error('Error:', error);

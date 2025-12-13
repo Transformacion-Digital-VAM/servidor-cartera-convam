@@ -18,7 +18,7 @@ router.post('/cliente', clienteController.guardarCliente);
 router.get('/obtener/:id', mostrarCliente)
 
 // ENDPOINT: mostrar clientes
-router.get('/cliente', mostrarClientes)
+router.get('/obtener', mostrarClientes)
 
 // ENDPOINT: eliminar cliente
 router.put('/editar/:id', editarCliente);

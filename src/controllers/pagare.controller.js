@@ -1,12 +1,8 @@
-
-
 const pool = require("../config/db");
 const fs = require("fs");
 const path = require("path");
 const { NumerosALetras } = require("numero-a-letras");
 const puppeteer = require("puppeteer");
-
-
 
 function formatearFechaParaBD(fechaString) {
   // Convierte "9 de diciembre de 2025" a "2025-12-09"
@@ -159,7 +155,6 @@ const generarPagare = async (req, res) => {
     const domicilio = `${data.calle} ${data.numero}, ${data.localidad}, ${data.municipio}`;
     const aval = `${data.nombre_aval} ${data.app_aval} ${data.apm_aval}`;
     const domicilioAval = `${data.calle_aval} ${data.numero_aval}, ${data.localidad_aval}, ${data.municipio_aval}`;
-
     const montoLetras = NumerosALetras(monto, {
       plural: 'pesos',
       singular: 'peso',
@@ -332,7 +327,6 @@ const generarPagare = async (req, res) => {
       </body>
       </html>
     `;
-
     const browser = await puppeteer.launch({
       headless: "new",
       args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -348,7 +342,6 @@ const generarPagare = async (req, res) => {
     }
 
     const rutaPDF = path.join(pdfDir, `pagare_${id_credito}.pdf`);
-
     await page.pdf({
       path: rutaPDF,
       format: "A4",
@@ -370,7 +363,6 @@ const generarPagare = async (req, res) => {
     // ================================
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="pagare_${id_credito}.pdf"`);
-
     // Leer y enviar el archivo
     const pdfBuffer = fs.readFileSync(rutaPDF);
     res.send(pdfBuffer);
@@ -381,6 +373,7 @@ const generarPagare = async (req, res) => {
     res.status(500).json({
       error: "Error al generar pagaré",
       detalle: error.message
+
     });
   } finally {
     client.release();
@@ -529,7 +522,6 @@ const generarHojaControl = async (req, res) => {
     if (!fs.existsSync(pdfDir)) {
       fs.mkdirSync(pdfDir, { recursive: true });
     }
-
     const rutaPDF = path.join(pdfDir, `hoja-control_${id_credito}.pdf`);
 
     await page.pdf({
@@ -543,7 +535,6 @@ const generarHojaControl = async (req, res) => {
     // --- 6. ENVIAR ARCHIVO PDF ---
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="hoja-control_${id_credito}.pdf"`);
-
     const pdfBuffer = fs.readFileSync(rutaPDF);
     res.send(pdfBuffer);
 

@@ -49,13 +49,11 @@ const guardarDireccion = async (req, res) => {
 };
 
 /** CLIENTE */
-// Guardar solo cliente
 const guardarCliente = async (req, res) => {
   const client = await pool.connect();
 
   try {
     const {
-      folio_cliente,
       nombre_cliente,
       app_cliente,
       apm_cliente,
@@ -86,15 +84,14 @@ const guardarCliente = async (req, res) => {
 
     const query = `
       INSERT INTO cliente (
-        folio_cliente, nombre_cliente, app_cliente, apm_cliente, curp,
+        nombre_cliente, app_cliente, apm_cliente, curp,
         rfc, fecha_nacimiento, nacionalidad, direccion_id, ocupacion,
         ciclo_actual, telefono
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       RETURNING id_cliente
     `;
 
     const result = await client.query(query, [
-      folio_cliente,
       nombre_cliente,
       app_cliente,
       apm_cliente,
@@ -125,8 +122,6 @@ const guardarCliente = async (req, res) => {
   }
 };
 
-
-// Mantener las otras funciones igual...
 const mostrarClientes = async (req, res) => {
   try {
     const result = await pool.query(`
@@ -170,7 +165,6 @@ const mostrarCliente = async (req, res) => {
     res.status(500).json({ message: 'Error al obtener cliente', error: error.message })
   }
 };
-
 
 const editarCliente = async (req, res) => {
   const client = await pool.connect();
@@ -262,7 +256,6 @@ const editarCliente = async (req, res) => {
   }
 };
 
-
 const eliminarCliente = async (req, res) => {
   const client = await pool.connect();
   try {
@@ -319,8 +312,6 @@ const eliminarCliente = async (req, res) => {
   }
 };
 
-
-
 const obtenerClientesPorAliado = async (req, res) => {
   const { id_aliado } = req.params;
 
@@ -346,13 +337,12 @@ const obtenerClientesPorAliado = async (req, res) => {
     res.status(200).json(result.rows);
 
   } catch (error) {
-    res.status(500).json({ 
-      message: "Error al obtener clientes por aliado", 
-      error: error.message 
+    res.status(500).json({
+      message: "Error al obtener clientes por aliado",
+      error: error.message
     });
   }
 };
-
 
 
 module.exports = {

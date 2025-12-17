@@ -3,7 +3,6 @@ const pool = require('../config/db');
 // ----------------------------------------------------
 // REGISTRAR PAGO (FINAL, CORREGIDO Y ROBUSTO)
 // ----------------------------------------------------
-
 const registrarPago = async (req, res) => {
   const client = await pool.connect();
 
@@ -12,19 +11,23 @@ const registrarPago = async (req, res) => {
 
     const {
       credito_id,
+      numero_pago,           // NUEVO: número de pago específico
       moratorios = 0,
       pago_registrado = 0,
-      tipo_pago,
-      registrado_por
+      tipo_pago = 'PAGO NORMAL',
+      registrado_por,
+      // aplicar_a_mora = false  // NUEVO: opción para aplicar a mora primero
     } = req.body;
 
     // Validaciones básicas
     if (!credito_id) return res.status(400).json({ error: 'Falta el credito_id' });
     if (!registrado_por) return res.status(400).json({ error: 'Falta registrado_por' });
+    if (!numero_pago && numero_pago !== 0) return res.status(400).json({ error: 'Falta numero_pago' });
 
     const pagoRegistradoNum = Number(pago_registrado) || 0;
     const moratoriosNum = Number(moratorios) || 0;
     const totalPago = pagoRegistradoNum + moratoriosNum;
+    const numPago = Number(numero_pago);
 
     // ------------------------------------------------
     // 1) Obtener pagaré asociado al crédito
@@ -42,7 +45,7 @@ const registrarPago = async (req, res) => {
     const pagare_id = pagareRes.rows[0].id_pagare;
 
     // ------------------------------------------------
-    // 2) Obtener saldo pendiente del crédito y tasa moratoria
+    // 2) Obtener datos del crédito
     // ------------------------------------------------
     const creditoRes = await client.query(
       `SELECT saldo_pendiente, tasa_moratoria, total_a_pagar FROM credito WHERE id_credito = $1`,
@@ -58,54 +61,13 @@ const registrarPago = async (req, res) => {
     const totalAPagar = Number(creditoRes.rows[0].total_a_pagar) || 0;
     const tasaMoratoria = Number(creditoRes.rows[0].tasa_moratoria) || 0;
 
-    // Si es el primer pago, usar total_a_pagar como saldo inicial
     const saldoInicial = saldoPendienteActual === 0 ? totalAPagar : saldoPendienteActual;
     const nuevoSaldoPendiente = saldoInicial - totalPago;
 
     // ------------------------------------------------
-    // 3) Registrar pago en tabla `pago`
+    // 3) Obtener la semana específica del calendario
     // ------------------------------------------------
-    const insertPagoSQL = `
-      INSERT INTO pago (
-        credito_id,
-        pagare_id,
-        fecha_operacion,
-        moratorios,
-        total_pago,
-        tipo_pago,
-        registrado_por,
-        tasa_moratoria,
-        pago_registrado,
-        saldo_despues
-      )
-      VALUES ($1,$2,NOW(),$3,$4,$5,$6,$7,$8,$9)
-      RETURNING *;
-    `;
-
-    const pagoInserted = await client.query(insertPagoSQL, [
-      credito_id,
-      pagare_id,
-      moratoriosNum,
-      totalPago,
-      tipo_pago,
-      registrado_por,
-      tasaMoratoria,
-      pagoRegistradoNum,
-      (nuevoSaldoPendiente < 0 ? 0 : nuevoSaldoPendiente)
-    ]);
-
-    const pagoRow = pagoInserted.rows[0];
-    const pagoId = pagoRow.id_pago;
-
-    // ------------------------------------------------
-    // 4) Impactar pago en calendario_pago
-    // ------------------------------------------------
-    let montoRestante = pagoRegistradoNum;
-    let acumuladoCapital = 0;
-    let acumuladoInteres = 0;
-
-    // Obtener semanas ordenadas por número de pago
-    const semanasRes = await client.query(`
+    const semanaRes = await client.query(`
       SELECT 
         id_calendario, 
         numero_pago,
@@ -115,93 +77,156 @@ const registrarPago = async (req, res) => {
         total_semana,
         COALESCE(monto_pagado, 0) AS monto_pagado,
         COALESCE(pagado, false) AS pagado,
-        COALESCE(estatus, 'PENDIENTE') AS estatus
+        COALESCE(estatus, 'PENDIENTE') AS estatus,
+        COALESCE(mora_acumulada, 0) AS mora_acumulada
       FROM calendario_pago
-      WHERE pagare_id = $1
-      ORDER BY numero_pago ASC
-    `, [pagare_id]);
+      WHERE pagare_id = $1 AND numero_pago = $2
+    `, [pagare_id, numPago]);
 
-    // Verificar mora para cada semana vencida
-    const hoy = new Date();
+    if (semanaRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `No existe el pago número ${numPago} para este crédito` });
+    }
 
-    for (const semana of semanasRes.rows) {
-      if (montoRestante <= 0) break;
+    const semana = semanaRes.rows[0];
+    const idCalendario = semana.id_calendario;
+    const totalSemana = Number(semana.total_semana) || 0;
+    const yaPagado = Number(semana.monto_pagado) || 0;
+    const faltanteSemana = totalSemana - yaPagado;
+    const capitalSemana = Number(semana.capital) || 0;
+    const interesSemana = Number(semana.interes) || 0;
+    const fechaVencimiento = new Date(semana.fecha_vencimiento);
+    const moraAcumulada = Number(semana.mora_acumulada) || 0;
 
-      const idCalendario = semana.id_calendario;
-      const totalSemana = Number(semana.total_semana) || 0;
-      const yaPagado = Number(semana.monto_pagado) || 0;
-      const faltanteSemana = totalSemana - yaPagado;
-      const capitalSemana = Number(semana.capital) || 0;
-      const interesSemana = Number(semana.interes) || 0;
-      const fechaVencimiento = new Date(semana.fecha_vencimiento);
-
-      // Calcular mora si la fecha de vencimiento ya pasó y no está pagada
-      let moraCalculada = 0;
-      if (fechaVencimiento < hoy && semana.estatus !== 'PAGADO') {
-        const diasAtraso = Math.floor((hoy - fechaVencimiento) / (1000 * 60 * 60 * 24));
-        if (diasAtraso > 0) {
-          // Calcular mora sobre el faltante
-          moraCalculada = (faltanteSemana * (tasaMoratoria / 100) / 30) * diasAtraso;
-        }
-      }
-
-      // Actualizar mora acumulada
-      if (moraCalculada > 0) {
-        await client.query(`
-          UPDATE calendario_pago
-          SET mora_acumulada = COALESCE(mora_acumulada, 0) + $1
-          WHERE id_calendario = $2
-        `, [moraCalculada, idCalendario]);
-      }
-
-      if (faltanteSemana <= 0) continue;
-
-      // Calcular cuánto aplicar de este pago
-      const aplicar = Math.min(montoRestante, faltanteSemana);
-      const proporcion = aplicar / totalSemana;
-
-      const capitalAAplicar = capitalSemana * proporcion;
-      const interesAAplicar = interesSemana * proporcion;
-
-      const nuevoMontoPagado = yaPagado + aplicar;
-      const nuevoEstado = nuevoMontoPagado >= totalSemana ? 'PAGADO' : 'PAGO PARCIAL';
-      const pagadoCompleto = nuevoEstado === 'PAGADO';
-
-      // Actualizar el registro del calendario
-      await client.query(`
-        UPDATE calendario_pago
-        SET 
-          monto_pagado = $1,
-          pagado = $2,
-          estatus = $3,
-          fecha_pago = CASE WHEN $4 > 0 THEN NOW() ELSE fecha_pago END
-        WHERE id_calendario = $5
-      `, [
-        nuevoMontoPagado,
-        pagadoCompleto,
-        nuevoEstado,
-        aplicar,
-        idCalendario
-      ]);
-
-      acumuladoCapital += capitalAAplicar;
-      acumuladoInteres += interesAAplicar;
-      montoRestante -= aplicar;
+    // Verificar si ya está completamente pagado
+    if (faltanteSemana <= 0 && moraAcumulada <= 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `El pago número ${numPago} ya está completamente cubierto` });
     }
 
     // ------------------------------------------------
-    // 5) Actualizar detalles del pago
+    // 4) Calcular mora si la fecha ya pasó
     // ------------------------------------------------
-    await client.query(`
-      UPDATE pago
-      SET
-        capital_pagado = $1,
-        interes_pagado = $2
-      WHERE id_pago = $3
-    `, [acumuladoCapital, acumuladoInteres, pagoId]);
+    const hoy = new Date();
+    let nuevaMora = 0;
+    let moraPagada = 0;
+
+    if (fechaVencimiento < hoy && semana.estatus !== 'PAGADO') {
+      const diasAtraso = Math.floor((hoy - fechaVencimiento) / (1000 * 60 * 60 * 24));
+      if (diasAtraso > 0) {
+        // Calcular mora sobre el faltante
+        nuevaMora = (faltanteSemana * (tasaMoratoria / 100) / 30) * diasAtraso;
+
+        // Si hay mora acumulada previa, sumarla
+        const moraTotal = moraAcumulada + nuevaMora;
+
+        // Opción: aplicar pago primero a mora
+        // if (aplicar_a_mora && moraTotal > 0 && pagoRegistradoNum > 0) {
+        //   moraPagada = Math.min(pagoRegistradoNum, moraTotal);
+        //   pagoRegistradoNum -= moraPagada;
+        // }
+      }
+    }
 
     // ------------------------------------------------
-    // 6) Actualizar saldo del crédito
+    // 5) Actualizar mora acumulada
+    // ------------------------------------------------
+    const moraRestante = Math.max(0, (moraAcumulada + nuevaMora) - moraPagada);
+
+    if (nuevaMora > 0) {
+      await client.query(`
+        UPDATE calendario_pago
+        SET mora_acumulada = $1
+        WHERE id_calendario = $2
+      `, [moraRestante, idCalendario]);
+    }
+
+    // ------------------------------------------------
+    // 6) Aplicar pago al capital/interés de la semana
+    // ------------------------------------------------
+    let capitalPagado = 0;
+    let interesPagado = 0;
+    let montoAplicadoASemana = 0;
+    let nuevoMontoPagado = yaPagado;
+    let nuevoEstado = semana.estatus;
+    let pagadoCompleto = semana.pagado;
+
+    if (pagoRegistradoNum > 0 && faltanteSemana > 0) {
+      const aplicar = Math.min(pagoRegistradoNum, faltanteSemana);
+      const proporcion = aplicar / totalSemana;
+
+      capitalPagado = capitalSemana * proporcion;
+      interesPagado = interesSemana * proporcion;
+      montoAplicadoASemana = aplicar;
+
+      nuevoMontoPagado = yaPagado + aplicar;
+      nuevoEstado = nuevoMontoPagado >= totalSemana ? 'PAGADO' : 'PAGO PARCIAL';
+      pagadoCompleto = nuevoEstado === 'PAGADO';
+    }
+
+    // ------------------------------------------------
+    // 7) Actualizar calendario_pago
+    // ------------------------------------------------
+    await client.query(`
+      UPDATE calendario_pago
+      SET 
+        monto_pagado = $1,
+        pagado = $2,
+        estatus = $3,
+        fecha_pago = CASE WHEN $4 > 0 THEN NOW() ELSE fecha_pago END
+      WHERE id_calendario = $5
+    `, [
+      nuevoMontoPagado,
+      pagadoCompleto,
+      nuevoEstado,
+      montoAplicadoASemana,
+      idCalendario
+    ]);
+
+    // ------------------------------------------------
+    // 8) Registrar pago en tabla `pago` (historial)
+    // ------------------------------------------------
+    const insertPagoSQL = `
+      INSERT INTO pago (
+        credito_id,
+        pagare_id,
+        numero_pago,        -- NUEVO: registrar a qué pago se aplicó
+        fecha_operacion,
+        moratorios,
+        total_pago,
+        tipo_pago,
+        registrado_por,
+        tasa_moratoria,
+        pago_registrado,
+        capital_pagado,
+        interes_pagado,
+        mora_pagada,        -- NUEVO: mora pagada en este registro
+        saldo_despues
+      )
+      VALUES ($1,$2,$3,NOW(),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      RETURNING *;
+    `;
+
+    const pagoInserted = await client.query(insertPagoSQL, [
+      credito_id,
+      pagare_id,
+      numPago,                    // Número de pago aplicado
+      moratoriosNum,
+      totalPago,
+      tipo_pago,
+      registrado_por,
+      tasaMoratoria,
+      pagoRegistradoNum,
+      capitalPagado,
+      interesPagado,
+      moraPagada,                 // Mora pagada
+      (nuevoSaldoPendiente < 0 ? 0 : nuevoSaldoPendiente)
+    ]);
+
+    const pagoRow = pagoInserted.rows[0];
+
+    // ------------------------------------------------
+    // 9) Actualizar saldo del crédito
     // ------------------------------------------------
     await client.query(`
       UPDATE credito
@@ -213,14 +238,19 @@ const registrarPago = async (req, res) => {
 
     return res.status(201).json({
       message: 'Pago registrado correctamente',
-      pago: {
-        ...pagoRow,
-        capital_pagado: acumuladoCapital,
-        interes_pagado: acumuladoInteres,
-        saldo_despues: (nuevoSaldoPendiente < 0 ? 0 : nuevoSaldoPendiente)
+      detalle: {
+        semana_aplicada: numPago,
+        monto_semana: montoAplicadoASemana,
+        mora_pagada: moraPagada,
+        capital_pagado: capitalPagado,
+        interes_pagado: interesPagado,
+        mora_acumulada: moraRestante,
+        estado_semana: nuevoEstado
       },
+      pago: pagoRow,
       nuevo_saldo: (nuevoSaldoPendiente < 0 ? 0 : nuevoSaldoPendiente)
     });
+
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error al registrar pago:', error);

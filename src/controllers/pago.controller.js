@@ -12,10 +12,10 @@ const registrarPago = async (req, res) => {
 
     const {
       credito_id,
-      moratorios = 0,
-      pago_registrado = 0,
-      tipo_pago,
-      registrado_por
+      moratorios = 0, // MORA ACUMULADA
+      pago_registrado = 0, // PAGO A CAPITAL E INTERÉS
+      tipo_pago, // EJEMPLO: 'EFECTIVO', 'TRANSFERENCIA', ETC.
+      registrado_por // USUARIO QUE REGISTRA EL PAGO
     } = req.body;
 
     // Validaciones básicas

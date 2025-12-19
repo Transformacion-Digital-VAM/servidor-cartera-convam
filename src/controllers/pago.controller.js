@@ -210,7 +210,7 @@ const registrarPago = async (req, res) => {
     const pagoInserted = await client.query(insertPagoSQL, [
       credito_id,
       pagare_id,
-      numPago,                    // Número de pago aplicado
+      numPago,                    
       moratoriosNum,
       totalPago,
       tipo_pago,
@@ -219,7 +219,7 @@ const registrarPago = async (req, res) => {
       pagoRegistradoNum,
       capitalPagado,
       interesPagado,
-      moraPagada,                 // Mora pagada
+      moraPagada,                 
       (nuevoSaldoPendiente < 0 ? 0 : nuevoSaldoPendiente)
     ]);
 

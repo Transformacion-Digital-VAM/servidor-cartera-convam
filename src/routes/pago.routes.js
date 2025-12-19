@@ -6,7 +6,8 @@ const {
   consultarPagosCliente,
   consultarPagosPorCredito,
   editarPago,
-  eliminarPago
+  eliminarPago,
+  obtenerSemanasPendientes
 } = require("../controllers/pago.controller");
 
 router.post("/", registrarPago);
@@ -15,6 +16,7 @@ router.get("/cliente/:cliente_id", consultarPagosCliente);
 router.put("/:id", editarPago);
 router.delete("/:id", eliminarPago);
 router.get('/credito/:credito_id', consultarPagosPorCredito);
+router.get('/credito/:credito_id/semanas-pendientes', obtenerSemanasPendientes);
 
 
 module.exports = router;

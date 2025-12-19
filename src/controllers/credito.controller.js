@@ -313,6 +313,7 @@ const obtenerCreditoPorCliente = async (req, res) => {
   }
 };
 
+
 module.exports = {
   guardarCredito,
   editarCredito,

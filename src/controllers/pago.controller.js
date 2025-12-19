@@ -372,6 +372,73 @@ const consultarPagosPorCredito = async (req, res) => {
   }
 };
 
+// helper
+// Agrega esta función helper en tu controlador o en un archivo aparte
+function calcularDiasAtraso(fechaVencimiento) {
+  if (!fechaVencimiento) return 0;
+
+  const hoy = new Date();
+  const vencimiento = new Date(fechaVencimiento);
+
+  // Resetear horas para comparar solo fechas
+  hoy.setHours(0, 0, 0, 0);
+  vencimiento.setHours(0, 0, 0, 0);
+
+  const diferenciaMs = hoy - vencimiento;
+  const diasAtraso = Math.floor(diferenciaMs / (1000 * 60 * 60 * 24));
+
+  return diasAtraso > 0 ? diasAtraso : 0;
+}
+
+const obtenerSemanasPendientes = async (req, res) => {
+  const { credito_id } = req.params;
+
+  try {
+    const result = await pool.query(`
+      SELECT 
+        cp.numero_pago,
+        cp.fecha_vencimiento,
+        cp.capital,
+        cp.interes,
+        cp.total_semana,
+        cp.monto_pagado,
+        cp.mora_acumulada,
+        cp.estatus,
+        cp.fecha_pago,
+        (cp.total_semana - COALESCE(cp.monto_pagado, 0)) as faltante,
+        -- Calcular días de atraso dinámicamente
+        CASE 
+          WHEN cp.fecha_vencimiento < CURRENT_DATE 
+               AND cp.estatus != 'PAGADO'
+          THEN CURRENT_DATE - cp.fecha_vencimiento
+          ELSE 0 
+        END as dias_atraso,
+        -- Calcular mora pendiente dinámicamente
+        CASE 
+          WHEN cp.fecha_vencimiento < CURRENT_DATE 
+               AND cp.estatus != 'PAGADO'
+          THEN (
+            (cp.total_semana - COALESCE(cp.monto_pagado, 0)) * 
+            (c.tasa_moratoria / 100) / 30 * 
+            (CURRENT_DATE - cp.fecha_vencimiento)
+          )
+          ELSE 0 
+        END as mora_pendiente_calculada
+      FROM calendario_pago cp
+      JOIN pagare p ON cp.pagare_id = p.id_pagare
+      JOIN credito c ON p.credito_id = c.id_credito
+      WHERE p.credito_id = $1
+        AND (cp.estatus != 'PAGADO' OR cp.mora_acumulada > 0)
+      ORDER BY cp.numero_pago ASC
+    `, [credito_id]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al obtener semanas pendientes' });
+  }
+};
+
 
 module.exports = {
   registrarPago,
@@ -379,5 +446,6 @@ module.exports = {
   consultarPagosCliente,
   consultarPagosPorCredito,
   editarPago,
-  eliminarPago
+  eliminarPago,
+  obtenerSemanasPendientes
 };

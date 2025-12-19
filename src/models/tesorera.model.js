@@ -2,12 +2,11 @@ const pool = require('../config/db');
 
 class TreasuryModel {
 
-    // Reporte de Ministraciones (este se mantiene igual)
+    // Reporte de Ministraciones
     static async getMinistrationsReport(filters) {
         const {
             startDate,
             endDate,
-            groupId,
             responsibleId,
             municipality,
             aliadoId
@@ -37,7 +36,7 @@ class TreasuryModel {
             INNER JOIN usuario u ON s.usuario_id = u.id_usuario
             INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
             LEFT JOIN pagare p ON c.id_credito = p.credito_id
-            WHERE c.estado_credito IN ('ENTREGADO')
+            WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCIÓN')
         `;
 
         const params = [];
@@ -81,8 +80,31 @@ class TreasuryModel {
         query += ` ORDER BY c.fecha_ministracion DESC`;
 
         const result = await pool.query(query, params);
-        return result.rows;
+
+        // 🔹 Separar y contar
+        const entregados = [];
+        const devolucion = [];
+
+        for (const row of result.rows) {
+            if (row.estado_credito === 'ENTREGADO') {
+                entregados.push(row);
+            } else if (row.estado_credito === 'DEVOLUCIÓN') {
+                devolucion.push(row);
+            }
+        }
+
+        return {
+            data: {
+                entregados,
+                devolucion
+            },
+            totals: {
+                entregados: entregados.length,
+                devolucion: devolucion.length
+            }
+        };
     }
+
 
     // Reporte CORREGIDO: Capital y Cartera (basado en calendario_pago)
     static async getCapitalReport(filters) {
@@ -259,7 +281,7 @@ class TreasuryModel {
             *,
             (total_capital - capital_pagado) AS saldo_capital,
             (total_interes - interes_pagado) AS saldo_interes,
-            ((total_capital - capital_pagado) + (total_interes - interes_pagado) + mora_acumulada_total) AS saldo_total_pendiente
+            ((total_capital - capital_pagado) + (total_interes - interes_pagado)) AS saldo_total_pendiente
         FROM resumen_credito
         ORDER BY 
             CASE estado_cartera 

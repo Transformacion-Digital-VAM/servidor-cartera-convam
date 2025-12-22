@@ -249,7 +249,7 @@ const generarPagare = async (req, res) => {
 
       <p>
         Por este pagaré prometo (emos) y me (nos) obligo (amos) a pagar a la orden de 
-        <b>_________________________</b> en su domicilio en ________________ la cantidad de 
+        <b>CONVAM</b> en su domicilio en Ribera del Rio, 65, A-3 la cantidad de 
         <b>$${monto.toFixed(2)} (${montoLetras.toUpperCase()}), mediante 16 pagos SEMANALES consecutivos </b> de 
         acuerdo la cual causará intereses a razón de la tasa fija mensual del <b> ${tasaInteres.toFixed(2)} % </b> mismos que será pagaderos por
         semanas vencidad. Si el importe total o proporcional correspondiente a este pagaré no fuere pagado a su vencimiento, 
@@ -300,7 +300,7 @@ const generarPagare = async (req, res) => {
           Como aval conozco y estoy de acuerdo con las responsabilidades credicticias que adquiero al momento de la firma
           de este pagare, me comprometo a responder ante la institución en caso de que el acreditado presente
           atrasos en los pagos de acuerdo a la fecha asignada.
-          En la Ciudad de DOLORES HIDALGO, A ${new Date().toLocaleDateString("es-MX")}</p>
+          En la Ciudad de DOLORES HIDALGO, GTO el ${new Date().toLocaleDateString("es-MX")}</p>
           <table style="font-size: 11px; width: 100%; align-content: center">
             <tr>
               <th style="text-align: center">"EL ACREDITADO"</th>
@@ -308,8 +308,8 @@ const generarPagare = async (req, res) => {
               <br>
             </tr>
             <tr>
-              <td>_________________________________________________</td>
-              <td>_________________________________________________</td>
+              <td>___________________________________________________</td>
+              <td>___________________________________________________</td>
             </tr>
             <tr>
               <td><b> Nombre:</b> ${cliente}</td>
@@ -389,7 +389,7 @@ const generarHojaControl = async (req, res) => {
     const queryCredito = `
       SELECT c.*,
              s.no_pagos, s.dia_pago, s.tipo_vencimiento,
-             cli.nombre_cliente, cli.app_cliente, cli.apm_cliente,
+             cli.nombre_cliente, cli.app_cliente, cli.apm_cliente, cli.ciclo_actual,
              al.nom_aliado
       FROM credito c
       JOIN solicitud s ON s.id_solicitud = c.solicitud_id
@@ -431,6 +431,19 @@ const generarHojaControl = async (req, res) => {
       saldoInicial = saldoFinal;
       return fila;
     });
+    const pagosFormateados = Number(data.total_a_pagar).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+    const totalGarantiaFormateado = Number(data.total_garantia).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+    const pagoSemanalFormateado = Number(data.pago_semanal).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+
 
     // --- 4. TEMPLATE HTML ---
     const html = `
@@ -438,21 +451,33 @@ const generarHojaControl = async (req, res) => {
       <head>
         <style>
           body { 
-            font-family: Arial; 
-            padding: 40px; 
+            font-family: calibri; 
+            padding: 80px; 
             font-size: 12px;
           }
           h2 { text-align: center; margin-bottom: 0; }
           .header-table td { padding: 3px; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          td {
+            padding: 3px; /* Espacio interior */
+          }
         </style>
       </head>
       <body>
+      <div style="text-align: right; margin-bottom: 5px;">
+        <img 
+          src="https://drive.google.com/thumbnail?id=16Cf-Mz26xqZcr8y1rSJceD1ao6kVkaZp" 
+          alt="Logo" 
+          style="width: 150px; height: 60px;">
+      </div>
+
         <h2 style="text-align:center; margin-top:20px">CONTROL INDIVIDUAL DE PAGOS Y GARANTÍAS</h2>
 
         <p style="text-align:right"><strong>NOMBRE DE CLIENTE:</strong> ${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}</p>
         <p style="text-align:right"><strong>RESPONSABLE:</strong> ${data.nom_aliado}</p>
 
+
+        <p style="text-align:left"><strong>CICLO:</strong> ${data.ciclo_actual}</p>
         <table style="width: 50%; text-align: left; border: 0; border-collapse: collapse;">
           <tr>
             <td>NO. DE PAGOS: <b>${data.no_pagos}</b></td>
@@ -464,16 +489,16 @@ const generarHojaControl = async (req, res) => {
             <td>DÍA DE PAGO: <b>${data.dia_pago}</b></td>
           </tr>
           <tr>
-            <td>TASA DE INTERÉS: <b>${(data.tasa_fija * 100).toFixed(2)}%</b></td>
+            <td>TASA DE INTERÉS: <b> ${(data.tasa_fija * 100).toFixed(2)}%</b></td>
           </tr>
           <tr>
-            <td>SALDO INICIAL: <b>$${data.total_a_pagar}</b></td>
+            <td>SALDO INICIAL: <b> $${pagosFormateados}</b></td>
           </tr>
           <tr>
-            <td>GARANTÍAS DEL CICLO: <b>$${data.total_garantia}</b></td>
+            <td>GARANTÍAS DEL CICLO: <b>$${totalGarantiaFormateado}</b></td>
           </tr>
           <tr>
-            <td>PAGO PACTADO: <b>$${pagoSemanal}</b></td>
+            <td>PAGO PACTADO: <b>$${pagoSemanalFormateado}</b></td>
           </tr>
         </table>
 
@@ -501,8 +526,7 @@ const generarHojaControl = async (req, res) => {
             `).join("")}
           </tbody>
         </table>
-
-        <p style="margin-top: 70px; text-align: center; margin-bottom: 60px;"><strong>FIRMA DE ALIADA</strong></p>
+        <p style="margin-top: 65px; text-align: center; margin-bottom: 35px;"><strong>FIRMA DE ${data.nom_aliado}</strong></p>
         <p style="text-align: center;">______________________________________________</p>
       </body>
       </html>

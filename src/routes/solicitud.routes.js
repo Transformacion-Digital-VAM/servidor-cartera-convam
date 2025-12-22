@@ -1,5 +1,7 @@
+// routes/solicitudRoutes.js
 const express = require('express');
 const router = express.Router();
+const verifyFirebaseToken = require('../middleware/auth.middleware');
 
 const {
   guardarSolicitud,
@@ -10,11 +12,20 @@ const {
   aprobarSolicitud,
   rechazarSolicitud,
   guardarGarantia,
-  eliminarSolicitud
+  eliminarSolicitud,
+  // Nuevas funciones de domiciliación
+  registrarDomiciliacion,
+  obtenerSolicitudesPendientesDomiciliacion,
+  obtenerSolicitudesDomiciliadas,
+  verificarEstadoSolicitud,
+  obtenerEstadisticasDomiciliacion
 } = require('../controllers/solicitud.controller');
 
+// RUTAS EXISTENTES
+// ===========================================
+
 // Obtener todas las solicitudes
-router.get('/solicitud', obtenerSolicitudes);
+router.get('/', obtenerSolicitudes);
 
 // Obtener solicitud por ID
 router.get('/:id_solicitud', obtenerSolicitudPorId);
@@ -28,16 +39,27 @@ router.get('/estado/:estado', obtenerSolicitudesPorEstado);
 // Guardar una nueva solicitud
 router.post('/crear', guardarSolicitud);
 
-// Aprobar una solicitud
+// Aprobar una solicitud (Tesorería)
 router.put('/aprobar/:id_solicitud', aprobarSolicitud);
 
-// Rechazar una solicitud
+// Rechazar una solicitud (Tesorería)
 router.put('/rechazar/:id_solicitud', rechazarSolicitud);
 
 // Eliminar una solicitud
 router.delete('/:id_solicitud', eliminarSolicitud);
 
 // Garantias
-router.post('/garantia', guardarGarantia);
+router.post('/garantia/:id_solicitud', guardarGarantia);
+
+// NUEVAS RUTAS PARA DOMICILIACIÓN
+// ================================
+
+// 1. Registrar domiciliación (Coordinador)
+// RUTAS CON AUTENTICACIÓN FIREBASE
+router.put('/:id_solicitud/domiciliar', verifyFirebaseToken, registrarDomiciliacion);
+router.get('/domiciliacion/pendientes', verifyFirebaseToken, obtenerSolicitudesPendientesDomiciliacion);
+router.get('/domiciliacion/completadas', verifyFirebaseToken, obtenerSolicitudesDomiciliadas);
+router.get('/domiciliacion/estadisticas', verifyFirebaseToken, obtenerEstadisticasDomiciliacion);
+
 
 module.exports = router;

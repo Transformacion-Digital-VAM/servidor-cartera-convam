@@ -447,5 +447,6 @@ module.exports = {
   consultarPagosPorCredito,
   editarPago,
   eliminarPago,
-  obtenerSemanasPendientes
+  obtenerSemanasPendientes,
+  calcularDiasAtraso
 };

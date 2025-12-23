@@ -148,6 +148,29 @@ const generarPagare = async (req, res) => {
     const primerPago = calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
     const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
 
+    const pagareExistente = await client.query(
+      `SELECT id_pagare FROM pagare WHERE credito_id = $1`,
+      [id_credito]
+    );
+
+    if (pagareExistente.rows.length > 0) {
+      const pagareAnteriorId = pagareExistente.rows[0].id_pagare;
+
+      // 1) Borrar calendario anterior
+      await client.query(
+        `DELETE FROM calendario_pago WHERE pagare_id = $1`,
+        [pagareAnteriorId]
+      );
+
+      // 2) Borrar pagaré anterior
+      await client.query(
+        `DELETE FROM pagare WHERE id_pagare = $1`,
+        [pagareAnteriorId]
+      );
+    }
+
+
+
     // ================================
     // 4. INSERTAR PAGARÉ EN BD
     // ================================

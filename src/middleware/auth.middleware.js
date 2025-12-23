@@ -1,15 +1,47 @@
-import admin from '../config/firebase.js';
+const admin = require('../config/firebase.js');
 
-export const verifyFirebaseToken = async (req, res, next) => {
+const verifyFirebaseToken = async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Falta token' });
+    const authHeader = req.headers.authorization;
 
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.user = decoded;  // Guardamos info del usuario
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token no proporcionado'
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(token);
+
+    // Agregar la info del usuario a la request
+    req.user = {
+      firebase_uid: decodedToken.uid,
+      email: decodedToken.email,
+      name: decodedToken.name
+    };
+
+    // Opcional: Obtener más datos de tu base de datos
+    const pool = require('../config/db');
+    const userResult = await pool.query(
+      'SELECT id_usuario, nombre, usuario, rol_id FROM usuario WHERE firebase_uid = $1',
+      [decodedToken.uid]
+    );
+
+    if (userResult.rows.length > 0) {
+      req.user.id_usuario = userResult.rows[0].id_usuario;
+      req.user.rol_id = userResult.rows[0].rol_id;
+      req.user.nombre = userResult.rows[0].nombre;
+    }
+
     next();
-
   } catch (error) {
-    res.status(401).json({ error: 'Token inválido' });
+    console.error('Error verificando token Firebase:', error);
+    return res.status(401).json({
+      success: false,
+      message: 'Token inválido o expirado'
+    });
   }
 };
+
+module.exports = verifyFirebaseToken;

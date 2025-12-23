@@ -22,7 +22,6 @@ function formatearFechaParaBD(fechaString) {
   return `${año}-${mes}-${dia}`;
 }
 
-// Modifica la función generarCalendarioPagos para incluir fecha ISO:
 function generarCalendarioPagos(primerPago, capital, interes) {
   const calendario = [];
   let fecha = new Date(primerPago);
@@ -73,26 +72,6 @@ function calcularPrimerPago(fechaMinistracion, diaPago) {
   return fechaPago;
 }
 
-function generarCalendarioPagos(primerPago, capital, interes) {
-  const calendario = [];
-  let fecha = new Date(primerPago);
-
-  for (let i = 1; i <= 16; i++) {
-    calendario.push({
-      numero: i,
-      fecha: fecha.toLocaleDateString("es-MX", {
-        day: "numeric", month: "long", year: "numeric"
-      }),
-      capital,
-      interes,
-      total: capital + interes
-    });
-
-    fecha.setDate(fecha.getDate() + 7);
-  }
-
-  return calendario;
-}
 
 const browser = puppeteer.launch({
   headless: "new",
@@ -101,6 +80,7 @@ const browser = puppeteer.launch({
     "--disable-setuid-sandbox",
   ],
 });
+
 const generarPagare = async (req, res) => {
   const client = await pool.connect();
 
@@ -573,6 +553,84 @@ const generarHojaControl = async (req, res) => {
   }
 };
 
+// CRUD CALENDARIO PAGO 
 
+// Obtener calendario por pagare
+const obtenerCalendarioPorPagare = async (req, res) => {
+  try {
+    const { pagare_id } = req.params;
 
-module.exports = { generarPagare, generarHojaControl };
+    const result = await pool.query(
+      `SELECT *
+       FROM calendario_pago
+       WHERE pagare_id = $1
+       ORDER BY numero_pago`,
+      [pagare_id]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Obtener calendario por cliente
+const obtenerCalendarioPorCliente = async (req, res) => {
+  try {
+    const { id_cliente } = req.params;
+
+    const result = await pool.query(
+      `SELECT 
+          cp.id_calendario,
+          cp.numero_pago,
+          cp.fecha_vencimiento,
+          cp.capital,
+          cp.interes,
+          cp.total_semana,
+          cp.total,
+          cp.pagado,
+          cp.estatus,
+          cp.fecha_pago,
+          cp.mora_acumulada,
+          p.id_pagare,
+          c.id_credito
+       FROM calendario_pago cp
+       JOIN pagare p ON p.id_pagare = cp.pagare_id
+       JOIN credito c ON c.id_credito = p.credito_id
+       JOIN solicitud s ON s.id_solicitud = c.solicitud_id
+       JOIN cliente cli ON cli.id_cliente = s.cliente_id
+       WHERE cli.id_cliente = $1
+       ORDER BY cp.fecha_vencimiento`,
+      [id_cliente]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Obtener calendario por crédito
+const obtenerCalendarioPorCredito = async (req, res) => {
+  try {
+    const { id_credito } = req.params;
+
+    const result = await pool.query(
+      `SELECT cp.*
+       FROM calendario_pago cp
+       JOIN pagare p ON p.id_pagare = cp.pagare_id
+       WHERE p.credito_id = $1
+       ORDER BY cp.numero_pago`,
+      [id_credito]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { generarPagare, generarHojaControl, obtenerCalendarioPorPagare, obtenerCalendarioPorCliente, obtenerCalendarioPorCredito };

@@ -109,30 +109,30 @@ SELECT
     da.calle     AS aval_calle,
     da.numero    AS aval_numero
 
-FROM solicitud s
-JOIN cliente c 
-    ON s.cliente_id = c.id_cliente
+      FROM solicitud s
+      JOIN cliente c 
+          ON s.cliente_id = c.id_cliente
 
-JOIN usuario u 
-    ON s.usuario_id = u.id_usuario
+      JOIN usuario u 
+          ON s.usuario_id = u.id_usuario
 
-JOIN direccion d 
-    ON c.direccion_id = d.id_direccion
+      JOIN direccion d 
+          ON c.direccion_id = d.id_direccion
 
-JOIN aliado al 
-    ON s.aliado_id = al.id_aliado
+      JOIN aliado al 
+          ON s.aliado_id = al.id_aliado
 
-JOIN aval a 
-    ON s.aval_id = a.id_aval
+      JOIN aval a 
+          ON s.aval_id = a.id_aval
 
--- 👉 JOIN correcto para la dirección del aval
-LEFT JOIN direccion da 
-    ON a.direccion_id = da.id_direccion
+      -- 👉 JOIN correcto para la dirección del aval
+      LEFT JOIN direccion da 
+          ON a.direccion_id = da.id_direccion
 
-LEFT JOIN usuario uc 
-    ON s.coordinador_id = uc.id_usuario
+      LEFT JOIN usuario uc 
+          ON s.coordinador_id = uc.id_usuario
 
-ORDER BY s.id_solicitud DESC;
+      ORDER BY s.id_solicitud DESC;
 
     `;
 

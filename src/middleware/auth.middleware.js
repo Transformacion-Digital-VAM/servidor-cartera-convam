@@ -32,6 +32,7 @@ const verifyFirebaseToken = async (req, res, next) => {
       req.user.id_usuario = userResult.rows[0].id_usuario;
       req.user.rol_id = userResult.rows[0].rol_id;
       req.user.nombre = userResult.rows[0].nombre;
+      
     }
 
     next();

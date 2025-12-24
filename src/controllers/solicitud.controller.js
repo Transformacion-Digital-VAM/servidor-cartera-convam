@@ -306,13 +306,14 @@ const registrarDomiciliacion = async (req, res) => {
     const usuarioRol = usuarioQuery.rows[0].nombre_rol;
 
     // Verificar que sea coordinador
-    if (usuarioRol !== 'COORDINADOR' && usuarioRol !== 'ADMIN') {
+    if (usuarioRol !== 'coordinador' && usuarioRol !== 'administrador') {
       await client.query("ROLLBACK");
       return res.status(403).json({
         success: false,
         error: 'Acceso denegado',
         detalle: `Solo coordinadores pueden registrar domiciliaciones. Tu rol: ${usuarioRol}`
       });
+      
     }
 
     // 2. Verificar que la solicitud existe y está aprobada

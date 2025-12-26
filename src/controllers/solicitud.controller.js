@@ -125,7 +125,6 @@ SELECT
       JOIN aval a 
           ON s.aval_id = a.id_aval
 
-      -- 👉 JOIN correcto para la dirección del aval
       LEFT JOIN direccion da 
           ON a.direccion_id = da.id_direccion
 

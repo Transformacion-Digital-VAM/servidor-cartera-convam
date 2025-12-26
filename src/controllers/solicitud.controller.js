@@ -287,7 +287,7 @@ const registrarDomiciliacion = async (req, res) => {
 
     // 1. Verificar que el usuario es coordinador
     const usuarioQuery = await client.query(`
-      SELECT u.id_usuario, r.nombre_rol 
+      SELECT u.id_usuario, r.nombre_rol, r.id_rol 
       FROM usuario u 
       JOIN rol r ON u.rol_id = r.id_rol 
       WHERE u.id_usuario = $1
@@ -305,7 +305,7 @@ const registrarDomiciliacion = async (req, res) => {
     const usuarioRol = usuarioQuery.rows[0].nombre_rol;
 
     // Verificar que sea coordinador
-    if (usuarioRol !== 'COORDINADOR' && usuarioRol !== 'ADMIN') {
+    if (usuarioRol !== 'COORDINADOR' && usuarioRol !== 'ADMIN' && usuarioQuery.rows[0].id_rol !== 1) {
       await client.query("ROLLBACK");
       return res.status(403).json({
         success: false,
@@ -331,14 +331,6 @@ const registrarDomiciliacion = async (req, res) => {
 
     const { estado, domiciliado } = solicitudQuery.rows[0];
 
-    if (estado !== 'APROBADO') {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        success: false,
-        error: 'Solicitud no aprobada',
-        detalle: `Estado actual: ${estado}. Debe estar en 'APROBADO'`
-      });
-    }
 
     if (domiciliado) {
       await client.query("ROLLBACK");
@@ -364,7 +356,6 @@ const registrarDomiciliacion = async (req, res) => {
       UPDATE solicitud 
       SET domiciliado = true,
           coordinador_id = $1,
-          domiciliacion_fecha = NOW(),
           domiciliacion_horario = $2,
           persona_recibio = $3,
           fecha_domiciliacion = $4
@@ -424,7 +415,7 @@ const obtenerSolicitudesPendientesDomiciliacion = async (req, res) => {
       JOIN usuario u ON s.usuario_id = u.id_usuario
       JOIN aliado a ON s.aliado_id = a.id_aliado
       JOIN direccion d ON c.direccion_id = d.id_direccion
-      WHERE s.estado = 'APROBADO'
+      WHERE s.estado = 'PENDIENTE'
       AND s.domiciliado = false
       ORDER BY s.fecha_aprobacion ASC
     `;

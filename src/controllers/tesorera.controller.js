@@ -185,7 +185,7 @@ class TreasuryController {
                     acc.carteraCorriente += parseInt(item.creditos_corrientes_mora) || 0;
                     acc.moraTotal += parseFloat(item.mora_total) || 0;
                     return acc;
-                }, { totalCreditos: 0, carteraVencida: 0, carteraCorriente: 0, moraTotal: 0 })
+                }, { totalCreditos: 0, carteraVencida: 0, carteraCorriente: 0, moraTotal: 0, totalClientes: 0 })
             });
 
         } catch (error) {
@@ -229,6 +229,7 @@ class TreasuryController {
             });
         }
     }
+
 }
 
 module.exports = TreasuryController;

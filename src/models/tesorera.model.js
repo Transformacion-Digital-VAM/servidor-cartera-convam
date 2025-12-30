@@ -414,6 +414,7 @@ class TreasuryModel {
                     COUNT(DISTINCT c.id_credito) AS total_creditos,
                     SUM(c.total_capital) AS capital_total,
                     SUM(c.total_interes) AS interes_total,
+                    COUNT(DISTINCT cl.id_cliente) AS total_clientes,
                     -- Cartera Vencida (terminó ciclo y tiene pagos vencidos)
                     COUNT(DISTINCT CASE 
                         WHEN ca.semanas_transcurridas > p.numero_pagos 

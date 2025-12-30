@@ -88,6 +88,7 @@ SELECT
     c.nombre_cliente,
     c.app_cliente,
     c.apm_cliente,
+    c.telefono,
 
     u.nombre AS usuario_nombre,
     uc.nombre AS coordinador_nombre,
@@ -103,6 +104,7 @@ SELECT
     a.nombre_aval,
     a.app_aval,
     a.apm_aval,
+    a.telefono as telefono_aval,
 
     -- Dirección del aval
     da.localidad AS aval_localidad,

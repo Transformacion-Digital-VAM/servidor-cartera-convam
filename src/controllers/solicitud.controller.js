@@ -1300,6 +1300,7 @@ const registrarDomiciliacion = async (req, res) => {
     client.release();
   }
 };  
+
 // OBTENER SOLICITUDES PENDIENTES DE DOMICILIACIÓN
 const obtenerSolicitudesPendientesDomiciliacion = async (req, res) => {
   const client = await pool.connect();

@@ -36,7 +36,7 @@ class TreasuryModel {
             INNER JOIN usuario u ON s.usuario_id = u.id_usuario
             INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
             LEFT JOIN pagare p ON c.id_credito = p.credito_id
-            WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCIÓN')
+            WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCIÓN', 'PENDIENTE')
         `;
 
         const params = [];
@@ -44,13 +44,13 @@ class TreasuryModel {
         const conditions = [];
 
         if (startDate) {
-            conditions.push(`c.fecha_ministracion >= $${paramCount}`);
+            conditions.push(`c.fecha_ministracion >= $${paramCount} OR s.fecha_creacion >= $${paramCount}`);
             params.push(startDate);
             paramCount++;
         }
 
         if (endDate) {
-            conditions.push(`c.fecha_ministracion <= $${paramCount}`);
+            conditions.push(`c.fecha_ministracion <= $${paramCount} OR s.fecha_creacion <= $${paramCount}`);
             params.push(endDate);
             paramCount++;
         }
@@ -77,30 +77,36 @@ class TreasuryModel {
             query += ' AND ' + conditions.join(' AND ');
         }
 
-        query += ` ORDER BY c.fecha_ministracion DESC`;
+        query += ` ORDER BY s.fecha_creacion DESC`;
 
         const result = await pool.query(query, params);
 
         // 🔹 Separar y contar
         const entregados = [];
         const devolucion = [];
+        const pendientes = [];
 
         for (const row of result.rows) {
             if (row.estado_credito === 'ENTREGADO') {
                 entregados.push(row);
             } else if (row.estado_credito === 'DEVOLUCIÓN') {
                 devolucion.push(row);
+            } else if (row.estado_credito === 'PENDIENTE') {
+                pendientes.push(row);
             }
         }
 
         return {
             data: {
                 entregados,
-                devolucion
+                devolucion,
+                pendientes
             },
-            totals: {
+            totales_estado: {
                 entregados: entregados.length,
-                devolucion: devolucion.length
+                devolucion: devolucion.length,
+                pendientes: pendientes.length,
+                total: result.rows.length
             }
         };
     }
@@ -560,6 +566,209 @@ class TreasuryModel {
             { value: 'REGULAR', label: 'Regular' }
         ];
     }
+    // Obtener filtros de fecha por periodo
+    static getFiltersByPeriod(periodo) {
+        const now = new Date();
+        const endDate = now.toISOString().split('T')[0];
+        let startDate = new Date();
+
+        switch (periodo) {
+            case 'semana':
+                // Inicio de la semana (Lunes)
+                const day = now.getDay();
+                const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+                startDate.setDate(diff);
+                break;
+            case 'mes':
+                startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+                break;
+            case 'trimestre':
+                const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
+                startDate = new Date(now.getFullYear(), quarterMonth, 1);
+                break;
+            case 'anio':
+                startDate = new Date(now.getFullYear(), 0, 1);
+                break;
+            default: // mes por defecto
+                startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+
+        return {
+            startDate: startDate.toISOString().split('T')[0],
+            endDate,
+            periodo
+        };
+    }
+
+    // Obtener estadísticas para el dashboard
+    static async getDashboardStatistics(filters) {
+        const { startDate, endDate } = filters;
+
+        // Consultas básicas de indicadores financieros
+        const query = `
+            WITH metrics AS (
+                SELECT 
+                    -- Total ministrado en el periodo
+                    COALESCE(SUM(CASE WHEN fecha_ministracion BETWEEN $1 AND $2 THEN total_capital ELSE 0 END), 0) as ministrado_periodo,
+                    
+                    -- Num créditos nuevos en el periodo
+                    COUNT(CASE WHEN fecha_ministracion BETWEEN $1 AND $2 THEN id_credito END) as nuevos_creditos,
+                    
+                    -- Total cobrado (capital + interes) en el periodo base a fecha de pago real
+                    (
+                        SELECT COALESCE(SUM(capital + interes), 0)
+                        FROM calendario_pago
+                        WHERE fecha_pago BETWEEN $1 AND $2
+                        AND pagado = true
+                    ) as cobrado_total,
+                    
+                    -- Interés generado (cobrado) en el periodo
+                    (
+                        SELECT COALESCE(SUM(interes), 0)
+                        FROM calendario_pago
+                        WHERE fecha_pago BETWEEN $1 AND $2
+                        AND pagado = true
+                    ) as interes_cobrado,
+                    
+                    -- Mora cobrada en el periodo
+                    (
+                        SELECT COALESCE(SUM(mora_acumulada), 0)
+                        FROM calendario_pago
+                        WHERE fecha_pago BETWEEN $1 AND $2
+                        AND pagado = true
+                    ) as mora_cobrada
+
+                FROM credito
+                WHERE estado_credito != 'CANCELADO'
+            )
+            SELECT * FROM metrics
+        `;
+
+        const result = await pool.query(query, [startDate, endDate]);
+        return result.rows[0];
+    }
+
+    static async getDashboardData(periodo) {
+        console.log('Obteniendo datos del dashboard para periodo:', periodo);
+
+        // Obtener fechas según el período
+        const dateFilter = this.getPeriodoFilter(periodo);
+        const params = [];
+
+        let query = `
+        WITH estadisticas_creditos AS (
+            SELECT 
+                c.id_credito,
+                c.fecha_ministracion,
+                c.total_capital,
+                c.total_interes,
+                c.total_a_pagar,
+                c.saldo_pendiente,
+                c.estado_credito,
+                cl.nombre_cliente || ' ' || cl.app_cliente AS nombre_cliente,
+                a.nom_aliado,
+                u.nombre AS responsable,
+                d.municipio,
+                -- Calcular semanas transcurridas
+                CEIL(DATE_PART('day', CURRENT_DATE - c.fecha_primer_pago) / 7) AS semanas_transcurridas,
+                p.numero_pagos
+            FROM credito c
+            INNER JOIN solicitud s ON c.solicitud_id = s.id_solicitud
+            INNER JOIN cliente cl ON s.cliente_id = cl.id_cliente
+            INNER JOIN aliado a ON c.aliado_id = a.id_aliado
+            INNER JOIN usuario u ON s.usuario_id = u.id_usuario
+            INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
+            INNER JOIN pagare p ON c.id_credito = p.credito_id
+            WHERE c.estado_credito = 'ENTREGADO'
+    `;
+
+        // Filtrar por período si aplica
+        if (periodo && periodo !== 'personalizado' && dateFilter) {
+            query += ` AND c.fecha_ministracion >= $${params.length + 1}`;
+            params.push(dateFilter);
+        }
+
+        query += `
+        ),
+        pagos_info AS (
+            SELECT 
+                ec.id_credito,
+                COUNT(cp.id_calendario) AS total_pagos,
+                SUM(CASE WHEN cp.pagado = true THEN 1 ELSE 0 END) AS pagos_realizados,
+                SUM(CASE WHEN cp.pagado = false AND cp.fecha_vencimiento < CURRENT_DATE THEN 1 ELSE 0 END) AS pagos_vencidos,
+                COALESCE(SUM(CASE WHEN cp.pagado = true THEN cp.capital ELSE 0 END), 0) AS capital_pagado,
+                COALESCE(SUM(CASE WHEN cp.pagado = true THEN cp.interes ELSE 0 END), 0) AS interes_pagado,
+                COALESCE(SUM(cp.mora_acumulada), 0) AS mora_total
+            FROM estadisticas_creditos ec
+            LEFT JOIN calendario_pago cp ON cp.pagare_id = (
+                SELECT id_pagare FROM pagare WHERE credito_id = ec.id_credito LIMIT 1
+            )
+            GROUP BY ec.id_credito
+        ),
+        estado_cartera AS (
+            SELECT 
+                ec.*,
+                pi.total_pagos,
+                pi.pagos_realizados,
+                pi.pagos_vencidos,
+                pi.capital_pagado,
+                pi.interes_pagado,
+                pi.mora_total,
+                -- Determinar estado de cartera
+                CASE 
+                    WHEN ec.semanas_transcurridas > ec.numero_pagos 
+                         AND pi.pagos_vencidos > 0 THEN 'CARTERA VENCIDA'
+                    WHEN ec.semanas_transcurridas <= ec.numero_pagos 
+                         AND pi.pagos_vencidos > 0 THEN 'CARTERA CORRIENTE'
+                    WHEN ec.semanas_transcurridas > ec.numero_pagos 
+                         AND pi.pagos_realizados = ec.numero_pagos THEN 'LIQUIDADO'
+                    WHEN ec.semanas_transcurridas <= ec.numero_pagos 
+                         AND pi.pagos_vencidos = 0 THEN 'EN CURSO'
+                    ELSE 'REGULAR'
+                END AS estado_cartera
+            FROM estadisticas_creditos ec
+            INNER JOIN pagos_info pi ON ec.id_credito = pi.id_credito
+        )
+        SELECT 
+            id_credito,
+            nombre_cliente,
+            total_capital AS monto_credito,
+            fecha_ministracion AS fecha_desembolso,
+            estado_cartera,
+            capital_pagado,
+            mora_total,
+            total_capital - capital_pagado AS saldo_capital,
+            municipio,
+            nom_aliado,
+            responsable,
+            semanas_transcurridas,
+            numero_pagos,
+            pagos_realizados,
+            pagos_vencidos
+        FROM estado_cartera
+        ORDER BY 
+            CASE estado_cartera 
+                WHEN 'CARTERA VENCIDA' THEN 1
+                WHEN 'CARTERA CORRIENTE' THEN 2
+                WHEN 'EN CURSO' THEN 3
+                ELSE 4
+            END,
+            fecha_ministracion DESC
+        LIMIT 500
+    `;
+
+        try {
+            console.log('Ejecutando query dashboard con params:', params);
+            const result = await pool.query(query, params);
+            console.log(`Datos obtenidos: ${result.rows.length} registros`);
+            return result.rows;
+        } catch (error) {
+            console.error('Error en getDashboardData:', error);
+            throw error;
+        }
+    }
+
+
 }
 
 module.exports = TreasuryModel; 

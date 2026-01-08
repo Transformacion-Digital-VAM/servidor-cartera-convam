@@ -4,8 +4,8 @@ const path = require("path");
 const { NumerosALetras } = require("numero-a-letras");
 const puppeteer = require("puppeteer");
 
+
 function formatearFechaParaBD(fechaString) {
-  // Convierte "9 de diciembre de 2025" a "2025-12-09"
   const meses = {
     'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
     'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
@@ -36,12 +36,13 @@ function generarCalendarioPagos(primerPago, capital, interes) {
     calendario.push({
       numero: i,
       fecha: fechaFormateada,
-      fecha_iso: fechaISO,  // <-- Agregar esto
+      fecha_iso: fechaISO,
       capital,
       interes,
       total: capital + interes
     });
 
+    // Sumar 7 días para la siguiente semana
     fecha.setDate(fecha.getDate() + 7);
   }
 
@@ -50,36 +51,37 @@ function generarCalendarioPagos(primerPago, capital, interes) {
 
 function calcularPrimerPago(fechaMinistracion, diaPago) {
   const dias = {
-    lunes: 1, martes: 2, miercoles: 3,
-    jueves: 4, viernes: 5, sabado: 6, domingo: 0
+    'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
+    'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0
   };
 
   const fecha = new Date(fechaMinistracion);
   const objetivo = dias[diaPago.toLowerCase()];
 
+  if (objetivo === undefined) {
+    throw new Error(`Día de pago no válido: ${diaPago}`);
+  }
+
   let fechaPago = new Date(fecha);
 
-  // Buscar el siguiente día de pago
+  // Buscar el siguiente día de pago después de la fecha de ministración
+  fechaPago.setDate(fechaPago.getDate() + 1); // Empezar al día siguiente
+
+  // Avanzar hasta encontrar el día correcto
   while (fechaPago.getDay() !== objetivo) {
     fechaPago.setDate(fechaPago.getDate() + 1);
   }
 
-  // Garantizar que haya al menos 1 día inhábil
-  const diff = (fechaPago - fecha) / (1000 * 60 * 60 * 24);
+  // Verificar que haya al menos 1 día hábil entre ministración y primer pago
+  const diffDias = Math.floor((fechaPago - fecha) / (1000 * 60 * 60 * 24));
 
-  if (diff < 1) fechaPago.setDate(fechaPago.getDate() + 7);
+  if (diffDias < 1) {
+    // Si no hay al menos 1 día, sumar una semana
+    fechaPago.setDate(fechaPago.getDate() + 7);
+  }
 
   return fechaPago;
 }
-
-
-const browser = puppeteer.launch({
-  headless: "new",
-  args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-  ],
-});
 
 const generarPagare = async (req, res) => {
   const client = await pool.connect();
@@ -87,11 +89,12 @@ const generarPagare = async (req, res) => {
   try {
     await client.query("BEGIN");
     const { id_credito } = req.params;
+    console.log("Generando pagaré para crédito:", id_credito);
 
     // ================================
     // 1. OBTENER DATOS DEL CRÉDITO
     // ================================
-    const resultado = await pool.query(`
+    const resultado = await client.query(`
       SELECT c.*, 
              cli.nombre_cliente, cli.app_cliente, cli.apm_cliente, cli.direccion_id,
              d.calle, d.numero, d.localidad, d.municipio,
@@ -148,28 +151,42 @@ const generarPagare = async (req, res) => {
     const primerPago = calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
     const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
 
-    const pagareExistente = await client.query(
-      `SELECT id_pagare FROM pagare WHERE credito_id = $1`,
+    console.log("Primer pago calculado:", primerPago.toLocaleDateString("es-MX"));
+
+    // Verificar si existe pagaré anterior
+    const pagareResult = await client.query(
+      `SELECT id_pagare, ruta_archivo FROM pagare WHERE credito_id = $1`,
       [id_credito]
     );
 
-    if (pagareExistente.rows.length > 0) {
-      const pagareAnteriorId = pagareExistente.rows[0].id_pagare;
+    if (pagareResult.rows.length > 0) {
+      const existingPagare = pagareResult.rows[0];
+      const pdfDir = path.join(__dirname, '../pdfs');
+      const rutaPDF = path.join(pdfDir, existingPagare.ruta_archivo);
 
-      // 1) Borrar calendario anterior
-      await client.query(
-        `DELETE FROM calendario_pago WHERE pagare_id = $1`,
-        [pagareAnteriorId]
-      );
+      if (fs.existsSync(rutaPDF)) {
+        console.log("El pagaré ya existe, devolviendo archivo existente:", rutaPDF);
+        await client.query("COMMIT");
 
-      // 2) Borrar pagaré anterior
-      await client.query(
-        `DELETE FROM pagare WHERE id_pagare = $1`,
-        [pagareAnteriorId]
-      );
+        const pdfBuffer = fs.readFileSync(rutaPDF);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${existingPagare.ruta_archivo}"`);
+        return res.send(pdfBuffer);
+      } else {
+        console.log("El registro de pagaré existe pero el archivo no, procediendo a recrear...");
+        // 1) Borrar calendario anterior
+        await client.query(
+          `DELETE FROM calendario_pago WHERE pagare_id = $1`,
+          [existingPagare.id_pagare]
+        );
+
+        // 2) Borrar pagaré anterior
+        await client.query(
+          `DELETE FROM pagare WHERE id_pagare = $1`,
+          [existingPagare.id_pagare]
+        );
+      }
     }
-
-
 
     // ================================
     // 4. INSERTAR PAGARÉ EN BD
@@ -178,7 +195,7 @@ const generarPagare = async (req, res) => {
       `INSERT INTO pagare (
          credito_id, ruta_archivo, total_capital, total_interes, total_a_pagar,
          numero_pagos, dia_pago, fecha_primer_pago
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id_pagare`,
       [
         id_credito,
@@ -188,39 +205,28 @@ const generarPagare = async (req, res) => {
         totalPagare,
         16,
         data.dia_pago,
-        primerPago
+        primerPago.toISOString().split('T')[0] // Formato YYYY-MM-DD
       ]
     );
 
     const pagareId = pagareInsert.rows[0].id_pagare;
+    console.log("Nuevo pagaré creado ID:", pagareId);
 
     // ================================
     // 5. INSERTAR CALENDARIO EN BD
     // ================================
     for (const p of calendario) {
-      const fechaParts = p.fecha.split(' de ');
-      const meses = {
-        'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3,
-        'mayo': 4, 'junio': 5, 'julio': 6, 'agosto': 7,
-        'septiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11
-      };
-
-      const dia = parseInt(fechaParts[0]);
-      const mes = meses[fechaParts[1]];
-      const año = parseInt(fechaParts[2]);
-      const fechaVencimiento = new Date(año, mes, dia);
-
       const totalSemana = p.capital + p.interes;
 
       await client.query(
         `INSERT INTO calendario_pago (
           pagare_id, numero_pago, fecha_vencimiento, 
           capital, interes, total_semana, total
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
           pagareId,
           p.numero,
-          fechaVencimiento.toISOString().split('T')[0],
+          p.fecha_iso,
           p.capital,
           p.interes,
           totalSemana,
@@ -229,11 +235,13 @@ const generarPagare = async (req, res) => {
       );
     }
 
+    console.log("Calendario insertado en BD");
+
     // ================================
     // 6. GENERAR PDF
     // ================================
     const html = `
-      <html>
+          <html>
       <style>
         body {
           font-family: "Calibri", Arial, sans-serif;
@@ -252,7 +260,7 @@ const generarPagare = async (req, res) => {
 
       <p>
         Por este pagaré prometo (emos) y me (nos) obligo (amos) a pagar a la orden de 
-        <b>CONVAM</b> en su domicilio en Ribera del Rio, 65, A-3 la cantidad de 
+        <b>CONVAM</b> en su domicilio en Rivera del Río #65 Int A - 3 Plaza Patria Zona Centro .P. 37800, Dolores Hidalgo, Gto. la cantidad de 
         <b>$${monto.toFixed(2)} (${montoLetras.toUpperCase()}), mediante 16 pagos SEMANALES consecutivos </b> de 
         acuerdo la cual causará intereses a razón de la tasa fija mensual del <b> ${tasaInteres.toFixed(2)} % </b> mismos que será pagaderos por
         semanas vencidad. Si el importe total o proporcional correspondiente a este pagaré no fuere pagado a su vencimiento, 
@@ -330,6 +338,8 @@ const generarPagare = async (req, res) => {
       </body>
       </html>
     `;
+
+    // Iniciar Puppeteer
     const browser = await puppeteer.launch({
       headless: "new",
       args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -345,6 +355,7 @@ const generarPagare = async (req, res) => {
     }
 
     const rutaPDF = path.join(pdfDir, `pagare_${id_credito}.pdf`);
+
     await page.pdf({
       path: rutaPDF,
       format: "A4",
@@ -358,16 +369,21 @@ const generarPagare = async (req, res) => {
     });
 
     await browser.close();
+    console.log("PDF generado en:", rutaPDF);
 
     await client.query("COMMIT");
 
     // ================================
-    // 7. ENVIAR ARCHIVO PDF COMO RESPUESTA
+    // 7. ENVIAR ARCHIVO PDF
     // ================================
+    if (!fs.existsSync(rutaPDF)) {
+      throw new Error(`El archivo PDF no se generó en: ${rutaPDF}`);
+    }
+
+    const pdfBuffer = fs.readFileSync(rutaPDF);
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="pagare_${id_credito}.pdf"`);
-    // Leer y enviar el archivo
-    const pdfBuffer = fs.readFileSync(rutaPDF);
     res.send(pdfBuffer);
 
   } catch (error) {
@@ -375,8 +391,8 @@ const generarPagare = async (req, res) => {
     console.error("Error al generar pagaré:", error);
     res.status(500).json({
       error: "Error al generar pagaré",
-      detalle: error.message
-
+      detalle: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   } finally {
     client.release();

@@ -18,7 +18,8 @@ const {
   obtenerSolicitudesPendientesDomiciliacion,
   obtenerSolicitudesDomiciliadas,
   verificarEstadoSolicitud,
-  obtenerEstadisticasDomiciliacion
+  obtenerEstadisticasDomiciliacion,
+  actualizarEstadoSolicitud
 } = require('../controllers/solicitud.controller');
 
 // RUTAS EXISTENTES
@@ -51,6 +52,9 @@ router.delete('/:id_solicitud', eliminarSolicitud);
 // Garantias
 router.post('/garantia/:id_solicitud', guardarGarantia);
 
+// ACTUALIZAR ESTADOS DE SOLICITUD
+router.put('/:id_solicitud/estado', actualizarEstadoSolicitud);
+
 // NUEVAS RUTAS PARA DOMICILIACIÓN
 // ================================
 
@@ -60,6 +64,7 @@ router.put('/:id_solicitud/domiciliar', verifyFirebaseToken, registrarDomiciliac
 router.get('/domiciliacion/pendientes', verifyFirebaseToken, obtenerSolicitudesPendientesDomiciliacion);
 router.get('/domiciliacion/completadas', verifyFirebaseToken, obtenerSolicitudesDomiciliadas);
 router.get('/domiciliacion/estadisticas', verifyFirebaseToken, obtenerEstadisticasDomiciliacion);
+
 
 
 module.exports = router;

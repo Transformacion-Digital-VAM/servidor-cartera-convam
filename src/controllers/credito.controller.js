@@ -185,7 +185,7 @@ const actualizarEstadoCredito = async (req, res) => {
     const { id } = req.params;
     const { estado_credito } = req.body;
 
-    if (!["PENDIENTE", "ENTREGADO", "DEVOLUCION", "FINALIZADO" ].includes(estado_credito)) {
+    if (!["PENDIENTE", "ENTREGADO", "DEVOLUCION", "FINALIZADO", "CANCELADO", "VENCIDO" ].includes(estado_credito)) {
       return res.status(400).json({ error: "Estado inválido" });
     }
 

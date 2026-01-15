@@ -215,7 +215,7 @@ class TreasuryController {
                     responsibles,
                     aliados,
                     carteraEstados,
-                    estadosCredito: ['PENDIENTE', 'ENTREGADO', 'DEVOLUCIÓN'],
+                    estadosCredito: ['PENDIENTE', 'ENTREGADO', 'DEVOLUCION', 'CANCELADO'],
                     estadosPago: ['VENCIDO', 'PENDIENTE', 'PAGADO']
                 }
             });

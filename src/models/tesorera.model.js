@@ -37,9 +37,9 @@
 //             INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
 //             LEFT JOIN pagare p ON c.id_credito = p.credito_id
 // <<<<<<< HEAD
-//             WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCIÓN')
+//             WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCION')
 // =======
-//             WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCIÓN', 'PENDIENTE')
+//             WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCION', 'PENDIENTE')
 // >>>>>>> 6719fdc226402dea9d76d297cb45ddc25371551f
 //         `;
 
@@ -108,7 +108,7 @@
 //         for (const row of result.rows) {
 //             if (row.estado_credito === 'ENTREGADO') {
 //                 entregados.push(row);
-//             } else if (row.estado_credito === 'DEVOLUCIÓN') {
+//             } else if (row.estado_credito === 'DEVOLUCION') {
 //                 devolucion.push(row);
 // <<<<<<< HEAD
 // =======
@@ -843,7 +843,7 @@ class TreasuryModel {
             INNER JOIN usuario u ON s.usuario_id = u.id_usuario
             INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
             LEFT JOIN pagare p ON c.id_credito = p.credito_id
-            WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCIÓN', 'PENDIENTE')
+            WHERE c.estado_credito IN ('ENTREGADO', 'DEVOLUCION', 'PENDIENTE')
         `;
 
         const params = [];
@@ -896,7 +896,7 @@ class TreasuryModel {
         for (const row of result.rows) {
             if (row.estado_credito === 'ENTREGADO') {
                 entregados.push(row);
-            } else if (row.estado_credito === 'DEVOLUCIÓN') {
+            } else if (row.estado_credito === 'DEVOLUCION') {
                 devolucion.push(row);
             } else if (row.estado_credito === 'PENDIENTE') {
                 pendientes.push(row);

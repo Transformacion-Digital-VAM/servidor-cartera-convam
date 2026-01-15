@@ -230,6 +230,80 @@ class TreasuryController {
         }
     }
 
+    // Exportar Dashboard (NUEVO)
+    static async exportDashboard(req, res) {
+        try {
+            const { tipo, periodo, fechaInicio, fechaFin } = req.query;
+            console.log(`Exportando dashboard: tipo=${tipo}, periodo=${periodo}, inicio=${fechaInicio}, fin=${fechaFin}`);
+
+            // 1. Obtener datos del dashboard
+            const data = await TreasuryModel.getDashboardData(periodo || 'mes', fechaInicio, fechaFin);
+
+            if (!data || data.length === 0) {
+                return res.status(404).json({ error: 'No hay datos para exportar en este periodo' });
+            }
+
+            let buffer;
+            let contentType;
+            let fileName = `reporte_dashboard_${new Date().toISOString().split('T')[0]}`;
+
+            // 2. Generar el archivo según el tipo solicitado
+            if (tipo === 'pdf') {
+                buffer = await PDFService.generateDashboardReport(data, periodo || 'mes');
+                contentType = 'application/pdf';
+                fileName += '.pdf';
+            } else if (tipo === 'excel') {
+                buffer = await ExcelService.generateDashboardReport(data, periodo || 'mes');
+                contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                fileName += '.xlsx';
+            } else if (tipo === 'csv') {
+                const headers = ['ID Crédito', 'Cliente', 'Monto', 'Fecha Desembolso', 'Estado', 'Capital Pagado', 'Mora Total'];
+                const rows = data.map(item => [
+                    item.id_credito,
+                    `"${item.nombre_cliente}"`,
+                    item.monto_credito,
+                    item.fecha_desembolso,
+                    item.estado_cartera,
+                    item.capital_pagado,
+                    item.mora_total
+                ]);
+                const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+                buffer = Buffer.from(csvContent, 'utf-8');
+                contentType = 'text/csv';
+                fileName += '.csv';
+            } else {
+                return res.status(400).json({ error: 'Tipo de exportación no válido' });
+            }
+
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
+            res.send(buffer);
+
+        } catch (error) {
+            console.error('Error al exportar dashboard:', error);
+            res.status(500).json({ error: 'Error interno al generar el reporte' });
+        }
+    }
+
+    // Obtener tendencias para dashboard (NUEVO)
+    static async getDashboardTrends(req, res) {
+        try {
+            const { periodo } = req.query;
+            const trends = await TreasuryModel.getDashboardTrends(periodo || '6M');
+
+            res.json({
+                success: true,
+                data: trends
+            });
+        } catch (error) {
+            console.error('Error al obtener tendencias:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Error al obtener tendencias del dashboard',
+                error: error.message
+            });
+        }
+    }
 }
 
 module.exports = TreasuryController;

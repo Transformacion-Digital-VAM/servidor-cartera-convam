@@ -24,5 +24,6 @@ router.get('/tesoreria/capital-cartera', TreasuryController.getCapitalReport);
 router.get('/tesoreria/detalle-pagos', TreasuryController.getPaymentDetailReport);
 router.get('/tesoreria/resumen-cartera', TreasuryController.getPortfolioSummary);
 router.get('/tesoreria/filtros', TreasuryController.getFilterOptions);
+router.get('/tesoreria/dashboard-trends', TreasuryController.getDashboardTrends);
 // Exportar dashboard (NUEVA RUTA)
 module.exports = router;

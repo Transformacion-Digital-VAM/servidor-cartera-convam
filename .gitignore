@@ -1,2 +1,5 @@
 /node_modules
 
+src/config/firebase.js
+src/config/firebase-service-account.json
+src/pdfs

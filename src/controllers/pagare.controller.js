@@ -148,7 +148,10 @@ const generarPagare = async (req, res) => {
     // ================================
     // 3. GENERAR CALENDARIO
     // ================================
-    const primerPago = calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
+    // Priorizar fecha_primer_pago si ya existe en el crédito, si no calcularla
+    const primerPago = data.fecha_primer_pago
+      ? new Date(data.fecha_primer_pago)
+      : calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
     const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
 
     console.log("Primer pago calculado:", primerPago.toLocaleDateString("es-MX"));
@@ -164,8 +167,15 @@ const generarPagare = async (req, res) => {
       const pdfDir = path.join(__dirname, '../pdfs');
       const rutaPDF = path.join(pdfDir, existingPagare.ruta_archivo);
 
-      if (fs.existsSync(rutaPDF)) {
-        console.log("El pagaré ya existe, devolviendo archivo existente:", rutaPDF);
+      // Comparar datos actuales con los del pagaré existente para ver si regeneramos
+      const fechaPP_DB = existingPagare.fecha_primer_pago ? new Date(existingPagare.fecha_primer_pago).toISOString().split('T')[0] : null;
+      const fechaPP_Nueva = primerPago.toISOString().split('T')[0];
+      const montoDB = Number(existingPagare.total_capital);
+
+      const sonIguales = (fechaPP_DB === fechaPP_Nueva) && (montoDB === totalCapital);
+
+      if (fs.existsSync(rutaPDF) && sonIguales) {
+        console.log("El pagaré ya existe y los datos coinciden, devolviendo archivo existente:", rutaPDF);
         await client.query("COMMIT");
 
         const pdfBuffer = fs.readFileSync(rutaPDF);
@@ -173,7 +183,21 @@ const generarPagare = async (req, res) => {
         res.setHeader('Content-Disposition', `inline; filename="${existingPagare.ruta_archivo}"`);
         return res.send(pdfBuffer);
       } else {
-        console.log("El registro de pagaré existe pero el archivo no, procediendo a recrear...");
+        console.log("Los datos cambiaron o el archivo no existe, procediendo a recrear...");
+
+        // Verificar si hay pagos registrados que impidan el borrado
+        const pagosExistentes = await client.query(
+          `SELECT id_pago FROM pago WHERE pagare_id = $1 LIMIT 1`,
+          [existingPagare.id_pagare]
+        );
+
+        if (pagosExistentes.rows.length > 0) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "No se puede regenerar el pagaré porque ya existen pagos registrados para este crédito. Debe eliminar los pagos primero."
+          });
+        }
+
         // 1) Borrar calendario anterior
         await client.query(
           `DELETE FROM calendario_pago WHERE pagare_id = $1`,
@@ -185,6 +209,11 @@ const generarPagare = async (req, res) => {
           `DELETE FROM pagare WHERE id_pagare = $1`,
           [existingPagare.id_pagare]
         );
+
+        // 3) Borrar archivo PDF si existe
+        if (fs.existsSync(rutaPDF)) {
+          fs.unlinkSync(rutaPDF);
+        }
       }
     }
 
@@ -430,7 +459,9 @@ const generarHojaControl = async (req, res) => {
     const interes = Number(data.total_interes) / data.no_pagos;
     const capitalPorPago = monto / data.no_pagos;
 
-    const primerPago = calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
+    const primerPago = data.fecha_primer_pago
+      ? new Date(data.fecha_primer_pago)
+      : calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
     const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
 
     // --- 3. ARMAR TABLA DE LA HOJA DE CONTROL ---

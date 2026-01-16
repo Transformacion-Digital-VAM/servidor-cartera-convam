@@ -22,6 +22,19 @@ const {
   actualizarEstadoSolicitud
 } = require('../controllers/solicitud.controller');
 
+
+// NUEVAS RUTAS PARA DOMICILIACIÓN
+// ================================
+
+// 1. Registrar domiciliación (Coordinador)
+// RUTAS CON AUTENTICACIÓN FIREBASE
+router.put('/:id_solicitud/domiciliar', verifyFirebaseToken, registrarDomiciliacion);
+router.get('/domiciliacion/pendientes', verifyFirebaseToken, obtenerSolicitudesPendientesDomiciliacion);
+router.get('/domiciliacion/completadas', verifyFirebaseToken, obtenerSolicitudesDomiciliadas);
+router.get('/domiciliacion/estadisticas', verifyFirebaseToken, obtenerEstadisticasDomiciliacion);
+
+
+
 // RUTAS EXISTENTES
 // ===========================================
 
@@ -54,17 +67,6 @@ router.post('/garantia/:id_solicitud', guardarGarantia);
 
 // ACTUALIZAR ESTADOS DE SOLICITUD
 router.put('/:id_solicitud/estado', actualizarEstadoSolicitud);
-
-// NUEVAS RUTAS PARA DOMICILIACIÓN
-// ================================
-
-// 1. Registrar domiciliación (Coordinador)
-// RUTAS CON AUTENTICACIÓN FIREBASE
-router.put('/:id_solicitud/domiciliar', verifyFirebaseToken, registrarDomiciliacion);
-router.get('/domiciliacion/pendientes', verifyFirebaseToken, obtenerSolicitudesPendientesDomiciliacion);
-router.get('/domiciliacion/completadas', verifyFirebaseToken, obtenerSolicitudesDomiciliadas);
-router.get('/domiciliacion/estadisticas', verifyFirebaseToken, obtenerEstadisticasDomiciliacion);
-
 
 
 module.exports = router;

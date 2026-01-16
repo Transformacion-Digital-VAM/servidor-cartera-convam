@@ -12,7 +12,9 @@ const pagareRoutes = require('./src/routes/pagare.routes');
 const pagoRoutes = require('./src/routes/pago.routes');
 const reporteRoutes = require('./src/routes/reporte.routes');
 const dashboardRoutes = require('./src/routes/dashboard.routes');
+const admin = require('./src/config/firebase.js');
 const app = express();
+
 
 // Habilitar CORS para permitir solicitudes desde Angular
 app.use(cors({
@@ -24,17 +26,6 @@ app.use(cors({
 // Middleware para parsear JSON
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Ruta de prueba
-app.get('/test', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT NOW()');
-    res.json({ message: 'Conexión exitosa', time: result.rows[0] });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error en la conexión' });
-  }
-});
 
 // Rutas
 app.use('/usuario', usuarioRoutes);
@@ -48,6 +39,10 @@ app.use('/pagare', pagareRoutes);
 app.use('/pago', pagoRoutes);
 app.use('/reporte', reporteRoutes);
 app.use('/dashboard', dashboardRoutes);
+
+admin.auth().listUsers(1)
+  .then(() => console.log('🔥 Firebase Admin conectado correctamente'))
+  .catch(err => console.error('❌ Firebase Admin ERROR:', err));
 
 const PORT = 3000;
 app.listen(PORT, () => {

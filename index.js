@@ -11,6 +11,7 @@ const aliadoRoutes = require('./src/routes/aliado.routes');
 const pagareRoutes = require('./src/routes/pagare.routes');
 const pagoRoutes = require('./src/routes/pago.routes');
 const reporteRoutes = require('./src/routes/reporte.routes');
+const dashboardRoutes = require('./src/routes/dashboard.routes');
 const app = express();
 
 // Habilitar CORS para permitir solicitudes desde Angular
@@ -46,6 +47,7 @@ app.use('/aliado', aliadoRoutes);
 app.use('/pagare', pagareRoutes);
 app.use('/pago', pagoRoutes);
 app.use('/reporte', reporteRoutes);
+app.use('/dashboard', dashboardRoutes);
 
 const PORT = 3000;
 app.listen(PORT, () => {

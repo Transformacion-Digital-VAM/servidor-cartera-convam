@@ -137,12 +137,23 @@ const registrarPago = async (req, res) => {
       let moraDeSemana = Number(semana.mora_acumulada) || 0;
 
       // Calcular mora adicional si está vencida y no estaba ya pagada
-      if (fechaVencimiento < hoy && !semana.pagado) {
-        const diasAtraso = Math.floor((hoy - fechaVencimiento) / (1000 * 60 * 60 * 24));
-        if (diasAtraso > 0) {
-          const moraCalculada = (faltanteSemana * (tasaMoratoria / 100) / 30) * diasAtraso;
-          moraDeSemana += moraCalculada;
-        }
+      // if (fechaVencimiento < hoy && !semana.pagado) {
+      //   const diasAtraso = Math.floor((hoy - fechaVencimiento) / (1000 * 60 * 60 * 24));
+      //   if (diasAtraso > 0) {
+      //     const moraCalculada = (faltanteSemana * (tasaMoratoria / 100) / 30) * diasAtraso;
+      //     moraDeSemana += moraCalculada;
+      //   }
+      // }
+
+      // Mora SOLO para semanas ANTERIORES a la que se está pagando
+      if (
+        fechaVencimiento < hoy &&
+        faltanteSemana > 0 &&
+        semana.numero_pago < numPagoEfectivo
+      ) {
+        moraDeSemana = faltanteSemana;
+      } else {
+        moraDeSemana = 0;
       }
 
       // A) Primero liquidar MORA de esta semana

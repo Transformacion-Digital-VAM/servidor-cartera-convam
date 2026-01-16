@@ -2536,7 +2536,7 @@ class TreasuryModel {
                 p.numero_pagos,
                 c.fecha_primer_pago,
                 -- Calcular semanas transcurridas
-                CEIL(DATE_PART('day', $1::timestamp - c.fecha_primer_pago) / 7) AS semanas_transcurridas
+                CEIL(($1::date - c.fecha_primer_pago)::float / 7) AS semanas_transcurridas
             FROM credito c
             INNER JOIN solicitud s ON c.solicitud_id = s.id_solicitud
             INNER JOIN cliente cl ON s.cliente_id = cl.id_cliente
@@ -2712,6 +2712,7 @@ class TreasuryModel {
                 c.id_credito,
                 c.estado_credito,
                 cl.nombre_cliente || ' ' || cl.app_cliente AS cliente_nombre,
+                cl.telefono,
                 d.municipio,
                 a.nom_aliado,
                 cp.numero_pago,
@@ -2856,7 +2857,7 @@ class TreasuryModel {
                 INNER JOIN pagare p ON c.id_credito = p.credito_id
                 LEFT JOIN calendario_pago cp ON p.id_pagare = cp.pagare_id
                 CROSS JOIN LATERAL (
-                    SELECT CEIL(DATE_PART('day', $1::timestamp - c.fecha_primer_pago) / 7) AS semanas_transcurridas
+                    SELECT CEIL(($1::date - c.fecha_primer_pago)::float / 7) AS semanas_transcurridas
                 ) ca
                 WHERE c.estado_credito = 'ENTREGADO'
         `;
@@ -2993,6 +2994,35 @@ class TreasuryModel {
         };
     }
 
+    // Obtener fecha de inicio para un periodo
+    static getPeriodoFilter(periodo) {
+        const now = new Date();
+        let startDate = new Date();
+
+        switch (periodo) {
+            case 'hoy':
+                break;
+            case 'semana':
+                const day = now.getDay();
+                const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+                startDate.setDate(diff);
+                break;
+            case 'mes':
+                startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+                break;
+            case 'trimestre':
+                const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
+                startDate = new Date(now.getFullYear(), quarterMonth, 1);
+                break;
+            case 'anio':
+                startDate = new Date(now.getFullYear(), 0, 1);
+                break;
+            default:
+                return null;
+        }
+        return startDate.toISOString().split('T')[0];
+    }
+
     // Obtener estadísticas para el dashboard
     static async getDashboardStatistics(filters) {
         const { startDate, endDate } = filters;
@@ -3041,12 +3071,22 @@ class TreasuryModel {
         return result.rows[0];
     }
 
-    static async getDashboardData(periodo) {
-        console.log('Obteniendo datos del dashboard para periodo:', periodo);
+    static async getDashboardData(periodo, startDate, endDate) {
+        console.log('Obteniendo datos del dashboard para:', { periodo, startDate, endDate });
 
-        // Obtener fechas según el período
-        const dateFilter = this.getPeriodoFilter(periodo);
         const params = [];
+        let dateCondition = '';
+
+        if (periodo === 'personalizado' && startDate && endDate) {
+            dateCondition = `AND (c.fecha_ministracion BETWEEN $1 AND $2 OR s.fecha_creacion BETWEEN $1 AND $2)`;
+            params.push(startDate, endDate);
+        } else {
+            const dateFilter = this.getPeriodoFilter(periodo);
+            if (dateFilter) {
+                dateCondition = `AND (c.fecha_ministracion >= $1 OR s.fecha_creacion >= $1)`;
+                params.push(dateFilter);
+            }
+        }
 
         let query = `
         WITH estadisticas_creditos AS (
@@ -3063,7 +3103,7 @@ class TreasuryModel {
                 u.nombre AS responsable,
                 d.municipio,
                 -- Calcular semanas transcurridas
-                CEIL(DATE_PART('day', CURRENT_DATE - c.fecha_primer_pago) / 7) AS semanas_transcurridas,
+                CEIL((CURRENT_DATE - c.fecha_primer_pago)::float / 7) AS semanas_transcurridas,
                 p.numero_pagos
             FROM credito c
             INNER JOIN solicitud s ON c.solicitud_id = s.id_solicitud
@@ -3072,16 +3112,8 @@ class TreasuryModel {
             INNER JOIN usuario u ON s.usuario_id = u.id_usuario
             INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
             INNER JOIN pagare p ON c.id_credito = p.credito_id
-            WHERE c.estado_credito = 'ENTREGADO'
-    `;
-
-        // Filtrar por período si aplica
-        if (periodo && periodo !== 'personalizado' && dateFilter) {
-            query += ` AND c.fecha_ministracion >= $${params.length + 1}`;
-            params.push(dateFilter);
-        }
-
-        query += `
+            WHERE c.estado_credito IN ('ENTREGADO', 'PENDIENTE', 'DEVOLUCIÓN')
+            ${dateCondition}
         ),
         pagos_info AS (
             SELECT 
@@ -3161,165 +3193,77 @@ class TreasuryModel {
         }
     }
 
+    static async getDashboardTrends(periodo = '6M') {
+        let months = 6;
+        if (periodo === '1Y') months = 12;
+        if (periodo === '3M') months = 3;
 
-    // Agregar al TreasuryModel
-// static async getDashboardTrends(periodo = '6M') {
-//     let interval;
-//     switch(periodo) {
-//         case '3M':
-//             interval = '3 MONTHS';
-//             break;
-//         case '1Y':
-//             interval = '1 YEAR';
-//             break;
-//         case '6M':
-//         default:
-//             interval = '6 MONTHS';
-//             break;
-//     }
-
-//     // 1. Tendencias de Ingresos (pagos realizados por mes)
-//     const incomeQuery = `
-//         SELECT 
-//             TO_CHAR(fecha_pago, 'YYYY-MM') AS mes,
-//             SUM(capital + interes + mora_acumulada) AS total
-//         FROM calendario_pago
-//         WHERE pagado = true
-//             AND fecha_pago >= CURRENT_DATE - INTERVAL '${interval}'
-//         GROUP BY TO_CHAR(fecha_pago, 'YYYY-MM')
-//         ORDER BY mes DESC
-//         LIMIT 12
-//     `;
-
-//     // 2. Tendencias de Cartera (por mes)
-//     const portfolioQuery = `
-//         WITH meses AS (
-//             SELECT 
-//                 generate_series(
-//                     CURRENT_DATE - INTERVAL '${interval}',
-//                     CURRENT_DATE,
-//                     '1 MONTH'::interval
-//                 )::date as mes
-//         )
-//         SELECT 
-//             TO_CHAR(m.mes, 'YYYY-MM') AS mes,
-//             COUNT(DISTINCT c.id_credito) AS total_creditos,
-//             COALESCE(SUM(c.total_capital), 0) AS cartera_total,
-//             COALESCE(SUM(
-//                 CASE 
-//                     WHEN ca.semanas_transcurridas > p.numero_pagos 
-//                     AND EXISTS (
-//                         SELECT 1 
-//                         FROM calendario_pago cp 
-//                         WHERE cp.pagare_id = p.id_pagare 
-//                         AND cp.pagado = false
-//                         AND cp.fecha_vencimiento < m.mes
-//                     ) THEN c.total_capital
-//                     ELSE 0
-//                 END
-//             ), 0) AS mora
-//         FROM meses m
-//         LEFT JOIN credito c ON c.fecha_ministracion <= m.mes
-//             AND c.estado_credito = 'ENTREGADO'
-//         LEFT JOIN pagare p ON c.id_credito = p.credito_id
-//         LEFT JOIN LATERAL (
-//             SELECT CEIL(DATE_PART('day', m.mes - c.fecha_primer_pago) / 7) AS semanas_transcurridas
-//         ) ca ON true
-//         GROUP BY TO_CHAR(m.mes, 'YYYY-MM')
-//         ORDER BY mes DESC
-//         LIMIT 12
-//     `;
-
-//     try {
-//         const [incomeResult, portfolioResult] = await Promise.all([
-//             pool.query(incomeQuery),
-//             pool.query(portfolioQuery)
-//         ]);
-
-//         return {
-//             incomeTrend: incomeResult.rows,
-//             portfolioTrend: portfolioResult.rows
-//         };
-        
-//     } catch (error) {
-//         console.error('Error en getDashboardTrends:', error);
-//         return { incomeTrend: [], portfolioTrend: [] };
-//     }
-// }
-static async getDashboardTrends(periodo = '6M') {
-    let interval;
-    switch(periodo) {
-        case '3M':
-            interval = '3 MONTHS';
-            break;
-        case '1Y':
-            interval = '1 YEAR';
-            break;
-        case '6M':
-        default:
-            interval = '6 MONTHS';
-            break;
-    }
-
-    // Versión más simple y confiable
-    const incomeQuery = `
-        SELECT 
-            TO_CHAR(fecha_pago, 'YYYY-MM') AS mes,
-            COALESCE(SUM(total_semana), 0) AS total
-        FROM calendario_pago
-        WHERE pagado = true
-            AND fecha_pago >= CURRENT_DATE - INTERVAL '${interval}'
-            AND fecha_pago IS NOT NULL
-        GROUP BY TO_CHAR(fecha_pago, 'YYYY-MM')
-        ORDER BY mes
-    `;
-
-    const portfolioQuery = `
-        WITH meses AS (
+        // 1. Tendencia de Ingresos (basado en pagos reales realizados)
+        const incomeQuery = `
             SELECT 
-                date_trunc('month', generate_series) as mes_fecha
-            FROM generate_series(
-                CURRENT_DATE - INTERVAL '${interval}',
-                CURRENT_DATE,
-                '1 MONTH'::interval
+                TO_CHAR(fecha_operacion, 'YYYY-MM') as mes,
+                SUM(total_pago) as total
+            FROM pago
+            WHERE fecha_operacion >= CURRENT_DATE - INTERVAL '${months} months'
+            GROUP BY 1
+            ORDER BY 1
+        `;
+
+        // 2. Evolución de Cartera (Saldo pendiente estimado histórico)
+        const portfolioQuery = `
+            WITH months AS (
+                SELECT generate_series(
+                    date_trunc('month', CURRENT_DATE - INTERVAL '12 months'),
+                    date_trunc('month', CURRENT_DATE),
+                    '1 month'
+                )::date as mes_inicio
+            ),
+            monthly_disbursements AS (
+                SELECT 
+                    date_trunc('month', fecha_ministracion)::date as mes,
+                    SUM(total_capital) as total_disbursed
+                FROM credito
+                GROUP BY 1
+            ),
+            monthly_payments AS (
+                SELECT 
+                    date_trunc('month', fecha_operacion)::date as mes,
+                    SUM(capital_pagado) as total_capital_paid
+                FROM pago
+                GROUP BY 1
             )
-        )
-        SELECT 
-            TO_CHAR(m.mes_fecha, 'YYYY-MM') AS mes,
-            COUNT(DISTINCT c.id_credito) AS total_creditos,
-            COALESCE(SUM(c.saldo_pendiente), 0) AS cartera_total,
-            COALESCE(SUM(
-                CASE 
-                    WHEN c.estado_cartera = 'CARTERA VENCIDA' THEN c.saldo_pendiente
-                    WHEN c.estado_cartera = 'CARTERA CORRIENTE' AND c.mora_acumulada_total > 0 THEN c.mora_acumulada_total
-                    ELSE 0
-                END
-            ), 0) AS mora
-        FROM meses m
-        LEFT JOIN credito c ON date_trunc('month', c.fecha_actualizacion) = m.mes_fecha
-            AND c.estado_credito = 'ENTREGADO'
-        GROUP BY m.mes_fecha
-        ORDER BY mes
-    `;
+            SELECT 
+                TO_CHAR(m.mes_inicio, 'YYYY-MM') as mes,
+                COALESCE((SELECT SUM(total_disbursed) FROM monthly_disbursements WHERE mes <= m.mes_inicio), 0) - 
+                COALESCE((SELECT SUM(total_capital_paid) FROM monthly_payments WHERE mes <= m.mes_inicio), 0) as cartera_total,
+                (
+                    SELECT COALESCE(SUM(cp.total_semana - cp.monto_pagado), 0)
+                    FROM calendario_pago cp
+                    INNER JOIN pagare p ON cp.pagare_id = p.id_pagare
+                    INNER JOIN credito c ON p.credito_id = c.id_credito
+                    WHERE cp.pagado = false 
+                    AND cp.fecha_vencimiento <= m.mes_inicio + INTERVAL '1 month' - INTERVAL '1 day'
+                    AND c.fecha_ministracion <= m.mes_inicio + INTERVAL '1 month' - INTERVAL '1 day'
+                ) as mora
+            FROM months m
+            ORDER BY 1
+        `;
 
-    try {
-        const [incomeResult, portfolioResult] = await Promise.all([
-            pool.query(incomeQuery),
-            pool.query(portfolioQuery)
-        ]);
+        try {
+            const [incomeResult, portfolioResult] = await Promise.all([
+                pool.query(incomeQuery),
+                pool.query(portfolioQuery)
+            ]);
 
-        return {
-            incomeTrend: incomeResult.rows,
-            portfolioTrend: portfolioResult.rows
-        };
-        
-    } catch (error) {
-        console.error('Error en getDashboardTrends:', error);
-        return { incomeTrend: [], portfolioTrend: [] };
+            return {
+                incomeTrend: incomeResult.rows,
+                portfolioTrend: portfolioResult.rows
+            };
+        } catch (error) {
+            console.error('Error en getDashboardTrends:', error);
+            throw error;
+        }
     }
-}
-
-
 }
 
 module.exports = TreasuryModel; 

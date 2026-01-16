@@ -230,6 +230,33 @@ class TreasuryController {
         }
     }
 
+
+
+    // Agregar al TreasuryController
+    static async getDashboardTrends(req, res) {
+        try {
+            const { periodo = '6M' } = req.query;
+
+            // Lógica para obtener tendencias
+            const trendsData = await TreasuryModel.getDashboardTrends(periodo);
+
+            res.json({
+                success: true,
+                data: {
+                    incomeTrend: trendsData.incomeTrend || [],
+                    portfolioTrend: trendsData.portfolioTrend || []
+                }
+            });
+
+        } catch (error) {
+            console.error('Error en dashboard trends:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Error al obtener tendencias',
+                error: error.message
+            });
+        }
+    }
 }
 
 module.exports = TreasuryController;

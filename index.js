@@ -28,17 +28,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Rutas
-app.use('/usuario', usuarioRoutes);
-app.use('/rol', rolRoutes);
-app.use('/auth', authRoutes);
-app.use('/cliente', clienteRoutes);
-app.use('/solicitud', solicitudRoutes);
-app.use('/credito', creditoRoutes);
-app.use('/aliado', aliadoRoutes);
-app.use('/pagare', pagareRoutes);
-app.use('/pago', pagoRoutes);
-app.use('/reporte', reporteRoutes);
-app.use('/dashboard', dashboardRoutes);
+app.use('/api/usuario', usuarioRoutes);
+app.use('/api/rol', rolRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/cliente', clienteRoutes);
+app.use('/api/solicitud', solicitudRoutes);
+app.use('/api/credito', creditoRoutes);
+app.use('/api/aliado', aliadoRoutes);
+app.use('/api/pagare', pagareRoutes);
+app.use('/api/pago', pagoRoutes);
+app.use('/api/reporte', reporteRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 admin.auth().listUsers(1)
   .then(() => console.log('🔥 Firebase Admin conectado correctamente'))

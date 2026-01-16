@@ -18,7 +18,7 @@ const app = express();
 
 // Habilitar CORS para permitir solicitudes desde Angular
 app.use(cors({
-  origin: 'http://localhost:4200', //  URL del frontend Angular
+  origin: 'https://convam-cartera.web.app', //  URL del frontend Angular
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));

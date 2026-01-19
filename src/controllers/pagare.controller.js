@@ -4,6 +4,11 @@ const path = require("path");
 const { NumerosALetras } = require("numero-a-letras");
 const puppeteer = require("puppeteer");
 
+const browser = await puppeteer.launch({
+  headless: true,
+  args: ['--no-sandbox', '--disable-setuid-sandbox']
+});
+
 
 function formatearFechaParaBD(fechaString) {
   const meses = {

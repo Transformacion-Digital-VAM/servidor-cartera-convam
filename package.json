@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "postinstall": "npx puppeteer browsers install chrome",
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
@@ -26,7 +27,7 @@
     "numero-a-letras": "^1.0.6",
     "pdfkit": "^0.17.2",
     "pg": "^8.17.1",
-    "puppeteer": "^24.33.0",
+    "puppeteer": "^24.35.0",
     "sequelize": "^6.37.7"
   },
   "devDependencies": {

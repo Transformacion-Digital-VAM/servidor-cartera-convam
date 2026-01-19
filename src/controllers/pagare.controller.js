@@ -4,10 +4,7 @@ const path = require("path");
 const { NumerosALetras } = require("numero-a-letras");
 const puppeteer = require("puppeteer");
 
-const browser = await puppeteer.launch({
-  headless: true,
-  args: ['--no-sandbox', '--disable-setuid-sandbox']
-});
+
 
 
 function formatearFechaParaBD(fechaString) {
@@ -375,8 +372,8 @@ const generarPagare = async (req, res) => {
 
     // Iniciar Puppeteer
     const browser = await puppeteer.launch({
-      headless: "new",
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
     const page = await browser.newPage();
@@ -589,8 +586,8 @@ const generarHojaControl = async (req, res) => {
 
     // --- 5. GENERAR PDF CON PUPPETEER ---
     const browser = await puppeteer.launch({
-      headless: "new",
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
     const page = await browser.newPage();

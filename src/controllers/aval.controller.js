@@ -2,23 +2,22 @@ const pool = require('../config/db');
 
 const guardarAval = async (req, res) => {
   const client = await pool.connect();
-
   try {
     const {
-        nombre_aval,
-        app_aval,
-        apm_aval,
-        curp,
-        telefono,
-        direccion_id,
-        cliente_id,        
+      nombre_aval,
+      app_aval,
+      apm_aval,
+      curp,
+      telefono,
+      direccion_id,
+      cliente_id,
     } = req.body;
 
     // Validad direccion
 
     const direccionExistente = await client.query(
-        `SELECT id_direccion FROM direccion WHERE id_direccion = $1`,
-        [direccion_id]
+      `SELECT id_direccion FROM direccion WHERE id_direccion = $1`,
+      [direccion_id]
     );
 
     if (direccionExistente.rows.length === 0) {

@@ -291,7 +291,7 @@ const generarPagare = async (req, res) => {
 
       <p>
         Por este pagaré prometo (emos) y me (nos) obligo (amos) a pagar a la orden de 
-        <b>CONVAM</b> en su domicilio en Rivera del Río #65 Int A - 3 Plaza Patria Zona Centro .P. 37800, Dolores Hidalgo, Gto. la cantidad de 
+        <b>CONVAM</b> en su domicilio en Rivera del Río #65 Int A - 3 Plaza Patria Zona Centro C.P. 37800, Dolores Hidalgo, Gto. la cantidad de 
         <b>$${monto.toFixed(2)} (${montoLetras.toUpperCase()}), mediante 16 pagos SEMANALES consecutivos </b> de 
         acuerdo la cual causará intereses a razón de la tasa fija mensual del <b> ${tasaInteres.toFixed(2)} % </b> mismos que será pagaderos por
         semanas vencidad. Si el importe total o proporcional correspondiente a este pagaré no fuere pagado a su vencimiento, 

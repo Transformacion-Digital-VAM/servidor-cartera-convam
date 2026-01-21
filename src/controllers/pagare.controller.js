@@ -137,9 +137,9 @@ const generarPagare = async (req, res) => {
     const totalPagare = totalCapital + totalInteres;
 
     const cliente = `${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}`;
-    const domicilio = `${data.calle} ${data.numero}, ${data.localidad}, ${data.municipio}`;
+    const domicilio = `${data.calle} ${data.numero}, ${data.localidad}`;
     const aval = `${data.nombre_aval} ${data.app_aval} ${data.apm_aval}`;
-    const domicilioAval = `${data.calle_aval} ${data.numero_aval}, ${data.localidad_aval}, ${data.municipio_aval}`;
+    const domicilioAval = `${data.calle_aval} ${data.numero_aval}, ${data.localidad_aval}`;
     const montoLetras = NumerosALetras(monto, {
       plural: 'pesos',
       singular: 'peso',
@@ -362,8 +362,8 @@ const generarPagare = async (req, res) => {
               <td><b>Domicilio:</b> ${domicilioAval}</td>
             </tr>
             <tr>
-              <td><b>Población:</b> Dolores Hidalgo, Gto</td>
-              <td><b>Población:</b> Dolores Hidalgo, Gto</td>
+              <td><b>Población:</b> DOLORES HIDALGO, GTO</td>
+              <td><b>Población:</b> DOLORES HIDALGO, GTO</td>
             </tr>
         </table>
       </body>

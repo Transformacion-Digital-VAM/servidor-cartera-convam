@@ -400,6 +400,12 @@ const generarPagare = async (req, res) => {
     `;
 
     // Iniciar Puppeteer
+    const pdfDir = path.join(__dirname, '../pdfs');
+    if (!fs.existsSync(pdfDir)) {
+      fs.mkdirSync(pdfDir, { recursive: true });
+    }
+    const rutaPDF = path.join(pdfDir, `pagare_${id_credito}.pdf`);
+
     let browser;
     try {
       browser = await puppeteer.launch({
@@ -415,14 +421,6 @@ const generarPagare = async (req, res) => {
       // Usar 'load' en lugar de 'networkidle0' ya que no hay recursos externos pesados
       // y 'networkidle0' puede fallar en entornos con restricciones de red
       await page.setContent(html, { waitUntil: "load" });
-
-      // Crear directorio si no existe
-      const pdfDir = path.join(__dirname, '../pdfs');
-      if (!fs.existsSync(pdfDir)) {
-        fs.mkdirSync(pdfDir, { recursive: true });
-      }
-
-      const rutaPDF = path.join(pdfDir, `pagare_${id_credito}.pdf`);
 
       await page.pdf({
         path: rutaPDF,
@@ -630,6 +628,12 @@ const generarHojaControl = async (req, res) => {
     `;
 
     // --- 5. GENERAR PDF CON PUPPETEER ---
+    const pdfDir = path.join(__dirname, '../pdfs');
+    if (!fs.existsSync(pdfDir)) {
+      fs.mkdirSync(pdfDir, { recursive: true });
+    }
+    const rutaPDF = path.join(pdfDir, `hoja-control_${id_credito}.pdf`);
+
     let browser;
     try {
       browser = await puppeteer.launch({
@@ -644,13 +648,6 @@ const generarHojaControl = async (req, res) => {
 
       // Usar 'load' para ser más permisivo con recursos externos (como el logo)
       await page.setContent(html, { waitUntil: "load" });
-
-      // Crear directorio si no existe
-      const pdfDir = path.join(__dirname, '../pdfs');
-      if (!fs.existsSync(pdfDir)) {
-        fs.mkdirSync(pdfDir, { recursive: true });
-      }
-      const rutaPDF = path.join(pdfDir, `hoja-control_${id_credito}.pdf`);
 
       await page.pdf({
         path: rutaPDF,

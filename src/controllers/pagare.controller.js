@@ -4,9 +4,6 @@ const path = require("path");
 const { NumerosALetras } = require("numero-a-letras");
 const puppeteer = require("puppeteer");
 
-
-
-
 function formatearFechaParaBD(fechaString) {
   const meses = {
     'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
@@ -24,11 +21,11 @@ function formatearFechaParaBD(fechaString) {
   return `${año}-${mes}-${dia}`;
 }
 
-function generarCalendarioPagos(primerPago, capital, interes) {
+function generarCalendarioPagos(primerPago, capital, interes, noPagos, tipoVencimiento) {
   const calendario = [];
   let fecha = new Date(primerPago);
 
-  for (let i = 1; i <= 16; i++) {
+  for (let i = 1; i <= noPagos; i++) {
     const fechaFormateada = fecha.toLocaleDateString("es-MX", {
       day: "numeric", month: "long", year: "numeric"
     });
@@ -44,42 +41,75 @@ function generarCalendarioPagos(primerPago, capital, interes) {
       total: capital + interes
     });
 
-    // Sumar 7 días para la siguiente semana
-    fecha.setDate(fecha.getDate() + 7);
+    // Sumar según el tipo de vencimiento
+    if (tipoVencimiento.toLowerCase() === 'mensual') {
+      const diaObjetivo = new Date(primerPago).getDate();
+
+      // Para evitar que setMonth salte meses si el día actual es 31 y el siguiente mes tiene 30
+      fecha.setDate(1);
+      fecha.setMonth(fecha.getMonth() + 1);
+
+      // Obtener el último día del nuevo mes (año, mes + 1, día 0)
+      const ultimoDiaMes = new Date(fecha.getFullYear(), fecha.getMonth() + 1, 0).getDate();
+
+      // Aplicar el día objetivo o el último del mes si el objetivo es mayor
+      fecha.setDate(Math.min(diaObjetivo, ultimoDiaMes));
+    } else if (tipoVencimiento.toLowerCase() === 'quincenal') {
+      fecha.setDate(fecha.getDate() + 14);
+    } else {
+      // Por defecto semanal
+      fecha.setDate(fecha.getDate() + 7);
+    }
   }
 
   return calendario;
 }
 
-function calcularPrimerPago(fechaMinistracion, diaPago) {
-  const dias = {
-    'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
-    'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0
-  };
-
+function calcularPrimerPago(fechaMinistracion, diaPago, tipoVencimiento) {
   const fecha = new Date(fechaMinistracion);
-  const objetivo = dias[diaPago.toLowerCase()];
-
-  if (objetivo === undefined) {
-    throw new Error(`Día de pago no válido: ${diaPago}`);
-  }
-
   let fechaPago = new Date(fecha);
 
-  // Buscar el siguiente día de pago después de la fecha de ministración
-  fechaPago.setDate(fechaPago.getDate() + 1); // Empezar al día siguiente
+  if (tipoVencimiento.toLowerCase() === 'mensual') {
+    // Para mensual, el 'diaPago' debería ser un número (ej: "30")
+    const dia = parseInt(diaPago);
+    if (isNaN(dia)) {
+      throw new Error(`Día de pago mensual no válido: ${diaPago}. Debe ser un número.`);
+    }
 
-  // Avanzar hasta encontrar el día correcto
-  while (fechaPago.getDay() !== objetivo) {
+    // Intentar poner el día en el mes actual
+    let ultimoDiaMesActual = new Date(fechaPago.getFullYear(), fechaPago.getMonth() + 1, 0).getDate();
+    fechaPago.setDate(Math.min(dia, ultimoDiaMesActual));
+
+    // Si la fecha resultante es menor o igual a la ministración, o si no hay al menos 1 día de gracia, saltar al siguiente mes
+    const diffDias = Math.floor((fechaPago - fecha) / (1000 * 60 * 60 * 24));
+    if (diffDias < 1) {
+      fechaPago.setMonth(fechaPago.getMonth() + 1);
+      let ultimoDiaSiguienteMes = new Date(fechaPago.getFullYear(), fechaPago.getMonth() + 1, 0).getDate();
+      fechaPago.setDate(Math.min(dia, ultimoDiaSiguienteMes));
+    }
+  } else {
+    // Semanal o Quincenal (usan días de la semana: lunes, martes...)
+    const dias = {
+      'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
+      'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0
+    };
+
+    const objetivo = dias[diaPago.toLowerCase()];
+    if (objetivo === undefined) {
+      throw new Error(`Día de pago no válido: ${diaPago}`);
+    }
+
+    // Buscar el siguiente día de pago después de la fecha de ministración
     fechaPago.setDate(fechaPago.getDate() + 1);
-  }
+    while (fechaPago.getDay() !== objetivo) {
+      fechaPago.setDate(fechaPago.getDate() + 1);
+    }
 
-  // Verificar que haya al menos 1 día hábil entre ministración y primer pago
-  const diffDias = Math.floor((fechaPago - fecha) / (1000 * 60 * 60 * 24));
-
-  if (diffDias < 1) {
-    // Si no hay al menos 1 día, sumar una semana
-    fechaPago.setDate(fechaPago.getDate() + 7);
+    // Verificar al menos 1 día hábil
+    const diffDias = Math.floor((fechaPago - fecha) / (1000 * 60 * 60 * 24));
+    if (diffDias < 1) {
+      fechaPago.setDate(fechaPago.getDate() + 7);
+    }
   }
 
   return fechaPago;
@@ -101,7 +131,7 @@ const generarPagare = async (req, res) => {
              cli.nombre_cliente, cli.app_cliente, cli.apm_cliente, cli.direccion_id,
              d.calle, d.numero, d.localidad, d.municipio,
              a.nom_aliado,
-             s.dia_pago, s.no_pagos,
+             s.dia_pago, s.no_pagos, s.tipo_vencimiento,
              av.nombre_aval, av.app_aval, av.apm_aval,
              dav.calle AS calle_aval,
              dav.numero AS numero_aval,
@@ -128,12 +158,12 @@ const generarPagare = async (req, res) => {
     // 2. CÁLCULOS DEL PAGARÉ
     // ================================
     const monto = Number(data.total_capital);
-    const interes = Number(data.total_interes) / 16;
+    const interes = Number(data.total_interes) / Number(data.no_pagos);
     const tasaInteres = Number(data.tasa_fija) * 100;
 
-    const capitalPorPago = monto / 16;
+    const capitalPorPago = monto / Number(data.no_pagos);
     const totalCapital = monto;
-    const totalInteres = interes * 16;
+    const totalInteres = interes * Number(data.no_pagos);
     const totalPagare = totalCapital + totalInteres;
 
     const cliente = `${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}`;
@@ -153,8 +183,8 @@ const generarPagare = async (req, res) => {
     // Priorizar fecha_primer_pago si ya existe en el crédito, si no calcularla
     const primerPago = data.fecha_primer_pago
       ? new Date(data.fecha_primer_pago)
-      : calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
-    const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
+      : calcularPrimerPago(data.fecha_ministracion, data.dia_pago, data.tipo_vencimiento);
+    const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes, Number(data.no_pagos), data.tipo_vencimiento);
 
     console.log("Primer pago calculado:", primerPago.toLocaleDateString("es-MX"));
 
@@ -234,7 +264,7 @@ const generarPagare = async (req, res) => {
         totalCapital,
         totalInteres,
         totalPagare,
-        16,
+        Number(data.no_pagos),
         data.dia_pago,
         primerPago.toISOString().split('T')[0] // Formato YYYY-MM-DD
       ]
@@ -287,12 +317,11 @@ const generarPagare = async (req, res) => {
         }
       </style>
       <body>
-      <h1 style="text-align:center;">PAGARÉ 1/1</h1>
 
       <p>
         Por este pagaré prometo (emos) y me (nos) obligo (amos) a pagar a la orden de 
         <b>CONVAM</b> en su domicilio en Rivera del Río #65 Int A - 3 Plaza Patria Zona Centro C.P. 37800, Dolores Hidalgo, Gto. la cantidad de 
-        <b>$${monto.toFixed(2)} (${montoLetras.toUpperCase()}), mediante 16 pagos SEMANALES consecutivos </b> de 
+        <b>$${monto.toFixed(2)} (${montoLetras.toUpperCase()}), mediante ${data.no_pagos} pagos ${data.tipo_vencimiento.toUpperCase()}ES consecutivos </b> de 
         acuerdo la cual causará intereses a razón de la tasa fija mensual del <b> ${tasaInteres.toFixed(2)} % </b> mismos que será pagaderos por
         semanas vencidad. Si el importe total o proporcional correspondiente a este pagaré no fuere pagado a su vencimiento, 
         causará intereses a razón de la tasa que se resulte de multiplicar por 1.8 veces la ultima Tasa de Interés
@@ -302,7 +331,7 @@ const generarPagare = async (req, res) => {
         El (los) suscriptores y sus(s) avalista(s), se someten expresamente para el caso de controversia judicial, a la competencia de
         los tribunales de la ciudad de DOLORES HIDALGO, GTO.
       </p>
-      La cantidad antes señalada será pagada en <b>16 amortizaciones SEMANALES</b>, y consecutivas, precisamente en las fechas
+      La cantidad antes señalada será pagada en <b>${data.no_pagos} amortizaciones ${data.tipo_vencimiento.toUpperCase()}ES</b>, y consecutivas, precisamente en las fechas
       establecidas en el calendario de amortizaciones.
       En la ciudad de DOLORES HIDALGO, GTO el <b>${new Date().toLocaleDateString("es-MX")}</b>
       <h3 style="text-align:center;">CALENDARIO DE AMORTIZACIÓN</h3>
@@ -371,36 +400,52 @@ const generarPagare = async (req, res) => {
     `;
 
     // Iniciar Puppeteer
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
+    let browser;
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      });
 
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+      const page = await browser.newPage();
 
-    // Crear directorio si no existe
-    const pdfDir = path.join(__dirname, '../pdfs');
-    if (!fs.existsSync(pdfDir)) {
-      fs.mkdirSync(pdfDir, { recursive: true });
-    }
+      // Establecer tiempo de espera más largo (60 segundos)
+      page.setDefaultNavigationTimeout(60000);
 
-    const rutaPDF = path.join(pdfDir, `pagare_${id_credito}.pdf`);
+      // Usar 'load' en lugar de 'networkidle0' ya que no hay recursos externos pesados
+      // y 'networkidle0' puede fallar en entornos con restricciones de red
+      await page.setContent(html, { waitUntil: "load" });
 
-    await page.pdf({
-      path: rutaPDF,
-      format: "A4",
-      printBackground: true,
-      margin: {
-        top: '0.5cm',
-        bottom: '0.5cm',
-        left: '0.5cm',
-        right: '0.5cm'
+      // Crear directorio si no existe
+      const pdfDir = path.join(__dirname, '../pdfs');
+      if (!fs.existsSync(pdfDir)) {
+        fs.mkdirSync(pdfDir, { recursive: true });
       }
-    });
 
-    await browser.close();
-    console.log("PDF generado en:", rutaPDF);
+      const rutaPDF = path.join(pdfDir, `pagare_${id_credito}.pdf`);
+
+      await page.pdf({
+        path: rutaPDF,
+        format: "A4",
+        printBackground: true,
+        displayHeaderFooter: true,
+        headerTemplate: `
+          <div style="font-family: 'Calibri', 'Arial', sans-serif; font-size: 16pt; font-weight: bold; width: 100%; text-align: center; margin-top: 10px;">
+            PAGARÉ <span class="pageNumber"></span>/<span class="totalPages"></span>
+          </div>`,
+        footerTemplate: '<div style="font-family: \'Calibri\', \'Arial\', sans-serif; font-size: 10px; width: 100%; text-align: center; margin-bottom: 5px;"></div>',
+        margin: {
+          top: '2cm',
+          bottom: '1cm',
+          left: '1cm',
+          right: '1cm'
+        }
+      });
+
+      console.log("PDF generado en:", rutaPDF);
+    } finally {
+      if (browser) await browser.close();
+    }
 
     await client.query("COMMIT");
 
@@ -463,8 +508,8 @@ const generarHojaControl = async (req, res) => {
 
     const primerPago = data.fecha_primer_pago
       ? new Date(data.fecha_primer_pago)
-      : calcularPrimerPago(data.fecha_ministracion, data.dia_pago);
-    const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes);
+      : calcularPrimerPago(data.fecha_ministracion, data.dia_pago, data.tipo_vencimiento);
+    const calendario = generarCalendarioPagos(primerPago, capitalPorPago, interes, data.no_pagos, data.tipo_vencimiento);
 
     // --- 3. ARMAR TABLA DE LA HOJA DE CONTROL ---
     let saldoInicial = Number(data.total_a_pagar);
@@ -523,7 +568,7 @@ const generarHojaControl = async (req, res) => {
           style="width: 150px; height: 60px;">
       </div>
 
-        <h2 style="text-align:center; margin-top:20px">CONTROL INDIVIDUAL DE PAGOS Y GARANTÍAS</h2>
+        <h2 style="text-align:center; margin-top:20px">CONTROL INDIVIDUAL DE PAGOS</h2>
 
         <p style="text-align:right"><strong>NOMBRE DE CLIENTE:</strong> ${data.nombre_cliente} ${data.app_cliente} ${data.apm_cliente}</p>
         <p style="text-align:right"><strong>RESPONSABLE:</strong> ${data.nom_aliado}</p>
@@ -550,7 +595,7 @@ const generarHojaControl = async (req, res) => {
             <td>GARANTÍAS DEL CICLO: <b>$${totalGarantiaFormateado}</b></td>
           </tr>
           <tr>
-            <td>PAGO PACTADO: <b>$${pagoSemanalFormateado}</b></td>
+            <td>PAGO PACTADO SEMANAL: <b>$${pagoSemanalFormateado}</b></td>
           </tr>
         </table>
 
@@ -585,28 +630,36 @@ const generarHojaControl = async (req, res) => {
     `;
 
     // --- 5. GENERAR PDF CON PUPPETEER ---
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
+    let browser;
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      });
 
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+      const page = await browser.newPage();
 
-    // Crear directorio si no existe
-    const pdfDir = path.join(__dirname, '../pdfs');
-    if (!fs.existsSync(pdfDir)) {
-      fs.mkdirSync(pdfDir, { recursive: true });
+      // Establecer tiempo de espera más largo
+      page.setDefaultNavigationTimeout(60000);
+
+      // Usar 'load' para ser más permisivo con recursos externos (como el logo)
+      await page.setContent(html, { waitUntil: "load" });
+
+      // Crear directorio si no existe
+      const pdfDir = path.join(__dirname, '../pdfs');
+      if (!fs.existsSync(pdfDir)) {
+        fs.mkdirSync(pdfDir, { recursive: true });
+      }
+      const rutaPDF = path.join(pdfDir, `hoja-control_${id_credito}.pdf`);
+
+      await page.pdf({
+        path: rutaPDF,
+        format: "A4",
+        printBackground: true
+      });
+    } finally {
+      if (browser) await browser.close();
     }
-    const rutaPDF = path.join(pdfDir, `hoja-control_${id_credito}.pdf`);
-
-    await page.pdf({
-      path: rutaPDF,
-      format: "A4",
-      printBackground: true
-    });
-
-    await browser.close();
 
     // --- 6. ENVIAR ARCHIVO PDF ---
     res.setHeader('Content-Type', 'application/pdf');

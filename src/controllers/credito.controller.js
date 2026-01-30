@@ -28,7 +28,7 @@ const guardarCredito = async (req, res) => {
     // 1. Obtener datos de la solicitud
     // -------------------------------------------
     const solicitudResult = await client.query(
-      `SELECT monto_aprobado, aliado_id, aval_id
+      `SELECT monto_aprobado, aliado_id, aval_id, no_pagos, tipo_vencimiento
        FROM solicitud 
        WHERE id_solicitud = $1`,
       [solicitud_id]
@@ -38,7 +38,7 @@ const guardarCredito = async (req, res) => {
       return res.status(404).json({ error: "Solicitud no encontrada" });
     }
 
-    const { monto_aprobado, aliado_id, aval_id } = solicitudResult.rows[0];
+    const { monto_aprobado, aliado_id, aval_id, no_pagos, tipo_vencimiento } = solicitudResult.rows[0];
 
     const total_capital = Number(monto_aprobado);
 
@@ -59,13 +59,22 @@ const guardarCredito = async (req, res) => {
     // -------------------------------------------
     // 3. Calcular costos
     // -------------------------------------------
-    const totalInteres = (total_capital * tasa_fija) / 4 * 16;
+    let plazo_meses = 0;
+    if (tipo_vencimiento.toLowerCase() === 'mensual') {
+      plazo_meses = Number(no_pagos);
+    } else if (tipo_vencimiento.toLowerCase() === 'quincenal') {
+      plazo_meses = Number(no_pagos) / 2;
+    } else {
+      // Por defecto semanal
+      plazo_meses = Number(no_pagos) / 4;
+    }
+
+    const totalInteres = total_capital * tasa_fija * plazo_meses;
     const totalGarantia = total_capital * 0.10;
     const total_seguro = seguro ? 80 : 0;
     const totalAPagar = total_capital + totalInteres;
 
-    const pago_semanal = totalAPagar / 16;
-
+    const pago_semanal = totalAPagar / Number(no_pagos);
     // Nuevo campo acorde al cambio en la BD
     const saldo_pendiente = totalAPagar;
 
@@ -81,7 +90,7 @@ const guardarCredito = async (req, res) => {
         aliado_id, seguro, tasa_fija, aval_id,
         pago_semanal, tasa_moratoria, saldo_pendiente, estado_credito
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, 'PENDIENTE')
+      VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::numeric,$12,$13,$14,$15::numeric,$16,$17::numeric,$18::numeric,$19::numeric, 'PENDIENTE')
       RETURNING *`,
       [
         solicitud_id,

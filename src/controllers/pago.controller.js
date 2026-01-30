@@ -194,11 +194,11 @@ const registrarPago = async (req, res) => {
       await client.query(`
         UPDATE calendario_pago
         SET 
-          monto_pagado = $1,
+          monto_pagado = $1::numeric,
           pagado = $2,
           estatus = $3,
-          mora_acumulada = $4,
-          fecha_pago = CASE WHEN $5 > 0 THEN NOW() ELSE fecha_pago END
+          mora_acumulada = $4::numeric,
+          fecha_pago = CASE WHEN $5::numeric > 0 THEN NOW() ELSE fecha_pago END
         WHERE id_calendario = $6
       `, [
         nuevoMontoPagado,
@@ -238,7 +238,7 @@ const registrarPago = async (req, res) => {
         tasa_moratoria, pago_registrado, capital_pagado,
         interes_pagado, mora_pagada, saldo_despues
       )
-      VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, NOW(), $4::numeric, $5::numeric, $6, $7, $8::numeric, $9::numeric, $10::numeric, $11::numeric, $12::numeric, $13::numeric)
       RETURNING *;
     `;
 
@@ -260,7 +260,7 @@ const registrarPago = async (req, res) => {
     // ------------------------------------------------
     await client.query(`
       UPDATE credito
-      SET saldo_pendiente = $1
+      SET saldo_pendiente = $1::numeric
       WHERE id_credito = $2
     `, [Math.max(0, nuevoSaldoPendiente), credito_id]);
 

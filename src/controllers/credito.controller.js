@@ -273,6 +273,7 @@ const obtenerCreditos = async (req, res) => {
       SELECT 
         c.*, 
         s.cliente_id,
+        s.no_pagos AS numero_pagos,
         cl.nombre_cliente,
         cl.app_cliente,
         cl.apm_cliente,

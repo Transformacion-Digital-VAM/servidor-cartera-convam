@@ -5,6 +5,7 @@
   "scripts": {
     "postinstall": "puppeteer browsers install chrome",
     "build": "npm install && puppeteer browsers install chrome",
+    "mora": "node generate_mora_report.js",
     "start": "node index.js",
     "dev": "nodemon index.js"
   },

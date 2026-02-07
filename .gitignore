@@ -4,3 +4,4 @@ src/config/firebase.js
 src/config/firebase-service-account.json
 src/pdfs
 .cache
+LISTADO_MORA_CLIENTES.txt

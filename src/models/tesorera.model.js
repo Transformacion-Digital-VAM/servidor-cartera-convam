@@ -642,10 +642,10 @@
 //                 SELECT 
 //                     -- Total ministrado en el periodo
 //                     COALESCE(SUM(CASE WHEN fecha_ministracion BETWEEN $1 AND $2 THEN total_capital ELSE 0 END), 0) as ministrado_periodo,
-                    
+
 //                     -- Num créditos nuevos en el periodo
 //                     COUNT(CASE WHEN fecha_ministracion BETWEEN $1 AND $2 THEN id_credito END) as nuevos_creditos,
-                    
+
 //                     -- Total cobrado (capital + interes) en el periodo base a fecha de pago real
 //                     (
 //                         SELECT COALESCE(SUM(capital + interes), 0)
@@ -653,7 +653,7 @@
 //                         WHERE fecha_pago BETWEEN $1 AND $2
 //                         AND pagado = true
 //                     ) as cobrado_total,
-                    
+
 //                     -- Interés generado (cobrado) en el periodo
 //                     (
 //                         SELECT COALESCE(SUM(interes), 0)
@@ -661,7 +661,7 @@
 //                         WHERE fecha_pago BETWEEN $1 AND $2
 //                         AND pagado = true
 //                     ) as interes_cobrado,
-                    
+
 //                     -- Mora cobrada en el periodo
 //                     (
 //                         SELECT COALESCE(SUM(mora_acumulada), 0)
@@ -949,8 +949,18 @@ class TreasuryModel {
                 p.id_pagare,
                 p.numero_pagos,
                 c.fecha_primer_pago,
-                -- Calcular semanas transcurridas
-                CEIL(($1::date - c.fecha_primer_pago)::float / 7) AS semanas_transcurridas
+                s.tipo_vencimiento,
+                -- Obtener la fecha del último pago del calendario
+                (SELECT MAX(fecha_vencimiento) FROM calendario_pago cp WHERE cp.pagare_id = p.id_pagare) as fecha_termino,
+                -- Calcular periodos transcurridos según el tipo de vencimiento
+                CASE 
+                    WHEN s.tipo_vencimiento = 'MENSUAL' THEN 
+                        EXTRACT(YEAR FROM AGE($1::date, c.fecha_primer_pago)) * 12 + EXTRACT(MONTH FROM AGE($1::date, c.fecha_primer_pago)) + 1
+                    WHEN s.tipo_vencimiento = 'QUINCENAL' THEN 
+                        CEIL(($1::date - c.fecha_primer_pago)::float / 14)
+                    ELSE 
+                        CEIL(($1::date - c.fecha_primer_pago)::float / 7)
+                END AS semanas_transcurridas
             FROM credito c
             INNER JOIN solicitud s ON c.solicitud_id = s.id_solicitud
             INNER JOIN cliente cl ON s.cliente_id = cl.id_cliente
@@ -958,7 +968,7 @@ class TreasuryModel {
             INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
             INNER JOIN usuario u ON s.usuario_id = u.id_usuario
             LEFT JOIN pagare p ON c.id_credito = p.credito_id
-            WHERE c.estado_credito = 'ENTREGADO'
+            WHERE c.estado_credito IN ('ENTREGADO', 'VENCIDO')
     `;
 
         const params = [fechaCorte];
@@ -1068,13 +1078,12 @@ class TreasuryModel {
                 COALESCE(SUM(cp.mora_acumulada), 0) AS mora_acumulada_total,
                 -- Determinar estado de cartera
                 CASE 
-                    WHEN ca.semanas_transcurridas > ca.numero_pagos 
-                         AND ac.tiene_pagos_vencidos = true THEN 'CARTERA VENCIDA'
-                    WHEN ca.semanas_transcurridas <= ca.numero_pagos 
+                    WHEN ca.estado_credito = 'VENCIDO' THEN 'CARTERA VENCIDA'
+                    WHEN ca.fecha_termino + INTERVAL '7 days' >= $1 
                          AND ac.tiene_pagos_vencidos = true THEN 'CARTERA CORRIENTE'
-                    WHEN ca.semanas_transcurridas > ca.numero_pagos 
+                    WHEN ca.estado_credito != 'VENCIDO' AND ca.fecha_termino < $1 
                          AND ac.total_pagos_realizados = ca.numero_pagos THEN 'LIQUIDADO'
-                    WHEN ca.semanas_transcurridas <= ca.numero_pagos 
+                    WHEN ca.fecha_termino + INTERVAL '7 days' >= $1 
                          AND ac.tiene_pagos_vencidos = false THEN 'EN CURSO'
                     ELSE 'REGULAR'
                 END AS estado_cartera
@@ -1087,14 +1096,15 @@ class TreasuryModel {
                 ca.saldo_pendiente, ca.nom_aliado, ca.cliente_nombre, 
                 ca.municipio, ca.responsable, ca.id_pagare, 
                 ca.numero_pagos, ca.fecha_primer_pago, ca.semanas_transcurridas,
+                ca.tipo_vencimiento, ca.fecha_termino,
                 ac.tiene_pagos_vencidos, ac.total_pagos_vencidos,
                 ac.total_pagos_pendientes, ac.total_pagos_realizados
         )
         SELECT 
             *,
-            (total_capital - capital_pagado) AS saldo_capital,
-            (total_interes - interes_pagado) AS saldo_interes,
-            ((total_capital - capital_pagado) + (total_interes - interes_pagado)) AS saldo_total_pendiente
+            (total_capital - capital_pagado) AS saldo_capital_calculado,
+            (total_interes - interes_pagado) AS saldo_interes_calculado,
+            saldo_pendiente AS saldo_total_pendiente
         FROM resumen_credito
         ORDER BY 
             CASE estado_cartera 
@@ -1154,7 +1164,7 @@ class TreasuryModel {
             INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
             INNER JOIN pagare p ON c.id_credito = p.credito_id
             INNER JOIN calendario_pago cp ON p.id_pagare = cp.pagare_id
-            WHERE c.estado_credito = 'ENTREGADO'
+            WHERE c.estado_credito IN ('ENTREGADO', 'VENCIDO')
         `;
 
         const params = [fechaCorte];
@@ -1231,18 +1241,11 @@ class TreasuryModel {
                     COUNT(DISTINCT cl.id_cliente) AS total_clientes,
                     -- Cartera Vencida (terminó ciclo y tiene pagos vencidos)
                     COUNT(DISTINCT CASE 
-                        WHEN ca.semanas_transcurridas > p.numero_pagos 
-                             AND EXISTS (
-                                 SELECT 1 
-                                 FROM calendario_pago cp 
-                                 WHERE cp.pagare_id = p.id_pagare 
-                                 AND cp.pagado = false
-                                 AND cp.fecha_vencimiento < $1
-                             ) THEN c.id_credito
+                        WHEN c.estado_credito = 'VENCIDO' THEN c.id_credito
                     END) AS creditos_vencidos,
-                    -- Cartera Corriente (dentro del ciclo con mora)
+                    -- Cartera Corriente (incluye los que tienen mora pero no son VENCIDOS oficialmente)
                     COUNT(DISTINCT CASE 
-                        WHEN ca.semanas_transcurridas <= p.numero_pagos 
+                        WHEN c.estado_credito != 'VENCIDO' 
                              AND EXISTS (
                                  SELECT 1 
                                  FROM calendario_pago cp 
@@ -1261,7 +1264,8 @@ class TreasuryModel {
                             AND cp.fecha_vencimiento < $1
                         ) THEN c.id_credito
                     END) AS creditos_regulares,
-                    -- Montos de mora
+                    -- Montos de mora (basado en saldo_pendiente para los vencidos)
+                    SUM(CASE WHEN c.estado_credito = 'VENCIDO' THEN c.saldo_pendiente ELSE 0 END) AS monto_vencido,
                     COALESCE(SUM(cp.mora_acumulada), 0) AS mora_total
                 FROM credito c
                 INNER JOIN solicitud s ON c.solicitud_id = s.id_solicitud
@@ -1271,9 +1275,10 @@ class TreasuryModel {
                 INNER JOIN pagare p ON c.id_credito = p.credito_id
                 LEFT JOIN calendario_pago cp ON p.id_pagare = cp.pagare_id
                 CROSS JOIN LATERAL (
-                    SELECT CEIL(($1::date - c.fecha_primer_pago)::float / 7) AS semanas_transcurridas
+                    SELECT 
+                        (SELECT MAX(fecha_vencimiento) FROM calendario_pago cp2 WHERE cp2.pagare_id = p.id_pagare) AS termino_ciclo
                 ) ca
-                WHERE c.estado_credito = 'ENTREGADO'
+                WHERE c.estado_credito IN ('ENTREGADO', 'VENCIDO')
         `;
 
         const params = [fechaCorte];
@@ -1516,8 +1521,19 @@ class TreasuryModel {
                 a.nom_aliado,
                 u.nombre AS responsable,
                 d.municipio,
-                -- Calcular semanas transcurridas
-                CEIL((CURRENT_DATE - c.fecha_primer_pago)::float / 7) AS semanas_transcurridas,
+                c.fecha_primer_pago,
+                s.tipo_vencimiento,
+                -- Obtener la fecha del último pago del calendario
+                (SELECT MAX(fecha_vencimiento) FROM calendario_pago cp WHERE cp.pagare_id = p.id_pagare) as fecha_termino,
+                -- Calcular periodos transcurridos según el tipo de vencimiento
+                CASE 
+                    WHEN s.tipo_vencimiento = 'MENSUAL' THEN 
+                        EXTRACT(YEAR FROM AGE(CURRENT_DATE, c.fecha_primer_pago)) * 12 + EXTRACT(MONTH FROM AGE(CURRENT_DATE, c.fecha_primer_pago)) + 1
+                    WHEN s.tipo_vencimiento = 'QUINCENAL' THEN 
+                        CEIL((CURRENT_DATE - c.fecha_primer_pago)::float / 14)
+                    ELSE 
+                        CEIL((CURRENT_DATE - c.fecha_primer_pago)::float / 7)
+                END AS semanas_transcurridas,
                 p.numero_pagos
             FROM credito c
             INNER JOIN solicitud s ON c.solicitud_id = s.id_solicitud
@@ -1526,7 +1542,7 @@ class TreasuryModel {
             INNER JOIN usuario u ON s.usuario_id = u.id_usuario
             INNER JOIN direccion d ON cl.direccion_id = d.id_direccion
             INNER JOIN pagare p ON c.id_credito = p.credito_id
-            WHERE c.estado_credito IN ('ENTREGADO', 'PENDIENTE', 'DEVOLUCIÓN')
+            WHERE c.estado_credito IN ('ENTREGADO', 'PENDIENTE', 'DEVOLUCIÓN', 'VENCIDO')
             ${dateCondition}
         ),
         pagos_info AS (
@@ -1555,13 +1571,12 @@ class TreasuryModel {
                 pi.mora_total,
                 -- Determinar estado de cartera
                 CASE 
-                    WHEN ec.semanas_transcurridas > ec.numero_pagos 
-                         AND pi.pagos_vencidos > 0 THEN 'CARTERA VENCIDA'
-                    WHEN ec.semanas_transcurridas <= ec.numero_pagos 
+                    WHEN ec.estado_credito = 'VENCIDO' THEN 'CARTERA VENCIDA'
+                    WHEN ec.fecha_termino + INTERVAL '7 days' >= CURRENT_DATE 
                          AND pi.pagos_vencidos > 0 THEN 'CARTERA CORRIENTE'
-                    WHEN ec.semanas_transcurridas > ec.numero_pagos 
+                    WHEN ec.estado_credito != 'VENCIDO' AND ec.fecha_termino < CURRENT_DATE 
                          AND pi.pagos_realizados = ec.numero_pagos THEN 'LIQUIDADO'
-                    WHEN ec.semanas_transcurridas <= ec.numero_pagos 
+                    WHEN ec.fecha_termino + INTERVAL '7 days' >= CURRENT_DATE 
                          AND pi.pagos_vencidos = 0 THEN 'EN CURSO'
                     ELSE 'REGULAR'
                 END AS estado_cartera
@@ -1576,7 +1591,7 @@ class TreasuryModel {
             estado_cartera,
             capital_pagado,
             mora_total,
-            total_capital - capital_pagado AS saldo_capital,
+            saldo_pendiente AS saldo_capital,
             municipio,
             nom_aliado,
             responsable,
@@ -1627,7 +1642,7 @@ class TreasuryModel {
         const portfolioQuery = `
             WITH months AS (
                 SELECT generate_series(
-                    date_trunc('month', CURRENT_DATE - INTERVAL '12 months'),
+                    date_trunc('month', CURRENT_DATE - INTERVAL '${months} months'),
                     date_trunc('month', CURRENT_DATE),
                     '1 month'
                 )::date as mes_inicio
@@ -1635,31 +1650,54 @@ class TreasuryModel {
             monthly_disbursements AS (
                 SELECT 
                     date_trunc('month', fecha_ministracion)::date as mes,
-                    SUM(total_capital) as total_disbursed
+                    SUM(total_a_pagar) as total_disbursed
                 FROM credito
+                WHERE estado_credito::text != 'CANCELADO'
                 GROUP BY 1
             ),
             monthly_payments AS (
                 SELECT 
                     date_trunc('month', fecha_operacion)::date as mes,
-                    SUM(capital_pagado) as total_capital_paid
+                    SUM(total_pago) as total_paid
                 FROM pago
                 GROUP BY 1
+            ),
+            snapshots AS (
+                SELECT 
+                    m.mes_inicio,
+                    -- Cartera Total: Todo lo colocado menos todo lo pagado hasta esa fecha
+                    (SELECT COALESCE(SUM(total_disbursed), 0) FROM monthly_disbursements WHERE mes <= m.mes_inicio) -
+                    (SELECT COALESCE(SUM(total_paid), 0) FROM monthly_payments WHERE mes <= m.mes_inicio) as cartera_total,
+                    -- Mora Total: (Saldo total de créditos vencidos) + (Abonos atrasados de créditos vigentes)
+                    (
+                        SELECT COALESCE(SUM(
+                            CASE 
+                                -- Si al fin de ese mes el crédito ya había terminado su periodo (Vencido histórico)
+                                WHEN (SELECT MAX(fecha_vencimiento) FROM calendario_pago cp2 WHERE cp2.pagare_id = pagare.id_pagare) + INTERVAL '7 days' < (CASE WHEN m.mes_inicio = date_trunc('month', CURRENT_DATE) THEN CURRENT_DATE ELSE m.mes_inicio + INTERVAL '1 month' END)
+                                THEN (
+                                    c.total_a_pagar - COALESCE((SELECT SUM(total_pago) FROM pago WHERE credito_id = c.id_credito AND fecha_operacion < (CASE WHEN m.mes_inicio = date_trunc('month', CURRENT_DATE) THEN CURRENT_DATE ELSE m.mes_inicio + INTERVAL '1 month' END)), 0)
+                                )
+                                -- Si el crédito todavía era corriente en esa fecha, solo contamos los pagos atrasados
+                                ELSE (
+                                    SELECT COALESCE(SUM(total_semana - monto_pagado), 0)
+                                    FROM calendario_pago cp3 
+                                    WHERE cp3.pagare_id = pagare.id_pagare 
+                                    AND cp3.fecha_vencimiento < (CASE WHEN m.mes_inicio = date_trunc('month', CURRENT_DATE) THEN CURRENT_DATE ELSE m.mes_inicio + INTERVAL '1 month' END)
+                                )
+                            END
+                        ), 0)
+                        FROM pagare
+                        INNER JOIN credito c ON pagare.credito_id = c.id_credito
+                        WHERE c.estado_credito::text NOT IN ('CANCELADO', 'LIQUIDADO', 'FINALIZADO')
+                        AND c.fecha_ministracion < (CASE WHEN m.mes_inicio = date_trunc('month', CURRENT_DATE) THEN CURRENT_DATE ELSE m.mes_inicio + INTERVAL '1 month' END)
+                    ) as mora
+                FROM months m
             )
             SELECT 
-                TO_CHAR(m.mes_inicio, 'YYYY-MM') as mes,
-                COALESCE((SELECT SUM(total_disbursed) FROM monthly_disbursements WHERE mes <= m.mes_inicio), 0) - 
-                COALESCE((SELECT SUM(total_capital_paid) FROM monthly_payments WHERE mes <= m.mes_inicio), 0) as cartera_total,
-                (
-                    SELECT COALESCE(SUM(cp.total_semana - cp.monto_pagado), 0)
-                    FROM calendario_pago cp
-                    INNER JOIN pagare p ON cp.pagare_id = p.id_pagare
-                    INNER JOIN credito c ON p.credito_id = c.id_credito
-                    WHERE cp.pagado = false 
-                    AND cp.fecha_vencimiento <= m.mes_inicio + INTERVAL '1 month' - INTERVAL '1 day'
-                    AND c.fecha_ministracion <= m.mes_inicio + INTERVAL '1 month' - INTERVAL '1 day'
-                ) as mora
-            FROM months m
+                TO_CHAR(mes_inicio, 'YYYY-MM') as mes,
+                CASE WHEN cartera_total < 0 THEN 0 ELSE cartera_total END as cartera_total,
+                CASE WHEN mora < 0 THEN 0 ELSE mora END as mora
+            FROM snapshots
             ORDER BY 1
         `;
 

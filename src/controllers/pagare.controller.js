@@ -55,7 +55,7 @@ function generarCalendarioPagos(primerPago, capital, interes, noPagos, tipoVenci
       // Aplicar el día objetivo o el último del mes si el objetivo es mayor
       fecha.setDate(Math.min(diaObjetivo, ultimoDiaMes));
     } else if (tipoVencimiento.toLowerCase() === 'quincenal') {
-      fecha.setDate(fecha.getDate() + 14);
+      fecha.setDate(fecha.getDate() + 15);
     } else {
       // Por defecto semanal
       fecha.setDate(fecha.getDate() + 7);

@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const pool = new Pool({
-    connectionString: 'postgresql://postgres:admin@localhost:5432/cartera_convam'
+    connectionString: 'postgresql://postgres:admin@localhost:5432/cartera-convam'
 });
 
 async function generateReport() {

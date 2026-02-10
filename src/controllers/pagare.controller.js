@@ -55,10 +55,22 @@ function generarCalendarioPagos(primerPago, capital, interes, noPagos, tipoVenci
       // Aplicar el día objetivo o el último del mes si el objetivo es mayor
       fecha.setDate(Math.min(diaObjetivo, ultimoDiaMes));
     } else if (tipoVencimiento.toLowerCase() === 'quincenal') {
-      fecha.setDate(fecha.getDate() + 15);
+      // Lógica para quincenas fijas (procurando 15 y 30)
+      const diaActual = fecha.getDate();
+      if (diaActual <= 10) {
+        // Caso de roll-over de febrero 30 (que cae en marzo 1 o 2)
+        fecha.setDate(15);
+      } else if (diaActual <= 20) {
+        // De la quincena del 15 a la del 30
+        fecha.setDate(30);
+      } else {
+        // De la quincena del 30 a la del 15 del mes siguiente
+        fecha.setDate(15);
+        fecha.setMonth(fecha.getMonth() + 1);
+      }
     } else {
-      // Por defecto semanal
-      fecha.setDate(fecha.getDate() + 8);
+      // Por defecto semanal (7 días)
+      fecha.setDate(fecha.getDate() + 7);
     }
   }
 
@@ -69,11 +81,11 @@ function calcularPrimerPago(fechaMinistracion, diaPago, tipoVencimiento) {
   const fecha = new Date(fechaMinistracion);
   let fechaPago = new Date(fecha);
 
-  if (tipoVencimiento.toLowerCase() === 'mensual') {
-    // Para mensual, el 'diaPago' debería ser un número (ej: "30")
+  if (tipoVencimiento.toLowerCase() === 'mensual' || tipoVencimiento.toLowerCase() === 'quincenal') {
+    // Para mensual o quincenal, el 'diaPago' debería ser un número (ej: "15" o "30")
     const dia = parseInt(diaPago);
     if (isNaN(dia)) {
-      throw new Error(`Día de pago mensual no válido: ${diaPago}. Debe ser un número.`);
+      throw new Error(`Día de pago mensual/quincenal no válido: ${diaPago}. Debe ser un número.`);
     }
 
     // Intentar poner el día en el mes actual
@@ -83,12 +95,17 @@ function calcularPrimerPago(fechaMinistracion, diaPago, tipoVencimiento) {
     // Si la fecha resultante es menor o igual a la ministración, o si no hay al menos 1 día de gracia, saltar al siguiente mes
     const diffDias = Math.floor((fechaPago - fecha) / (1000 * 60 * 60 * 24));
     if (diffDias < 1) {
-      fechaPago.setMonth(fechaPago.getMonth() + 1);
-      let ultimoDiaSiguienteMes = new Date(fechaPago.getFullYear(), fechaPago.getMonth() + 1, 0).getDate();
-      fechaPago.setDate(Math.min(dia, ultimoDiaSiguienteMes));
+      if (tipoVencimiento.toLowerCase() === 'quincenal' && dia === 15 && fechaPago.getDate() === 1) {
+        // Caso especial para quincenal: si ya estamos a día 1 (por roll-over) y pedimos el 15, quedarnos en el mismo mes
+        fechaPago.setDate(15);
+      } else {
+        fechaPago.setMonth(fechaPago.getMonth() + 1);
+        let ultimoDiaSiguienteMes = new Date(fechaPago.getFullYear(), fechaPago.getMonth() + 1, 0).getDate();
+        fechaPago.setDate(Math.min(dia, ultimoDiaSiguienteMes));
+      }
     }
   } else {
-    // Semanal o Quincenal (usan días de la semana: lunes, martes...)
+    // Semanal (usan días de la semana: lunes, martes...)
     const dias = {
       'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
       'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0

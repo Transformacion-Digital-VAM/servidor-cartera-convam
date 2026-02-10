@@ -58,7 +58,7 @@ function generarCalendarioPagos(primerPago, capital, interes, noPagos, tipoVenci
       fecha.setDate(fecha.getDate() + 15);
     } else {
       // Por defecto semanal
-      fecha.setDate(fecha.getDate() + 7);
+      fecha.setDate(fecha.getDate() + 8);
     }
   }
 

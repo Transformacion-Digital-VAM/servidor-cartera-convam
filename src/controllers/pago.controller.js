@@ -264,6 +264,41 @@ const registrarPago = async (req, res) => {
       WHERE id_credito = $2
     `, [Math.max(0, nuevoSaldoPendiente), credito_id]);
 
+    // ------------------------------------------------
+    // 7) Verificar si el crédito debe cambiar a FINALIZADO
+    // ------------------------------------------------
+    // Un crédito se marca como FINALIZADO si:
+    // - El saldo pendiente es 0, Y
+    // - Todos los pagos del calendario están marcados como pagado = true
+    const verificarFinalizacion = await client.query(`
+      SELECT 
+        c.id_credito,
+        c.saldo_pendiente,
+        COUNT(cp.id_calendario) as total_pagos,
+        COUNT(CASE WHEN cp.pagado = true THEN 1 END) as pagos_realizados
+      FROM credito c
+      LEFT JOIN pagare p ON c.id_credito = p.credito_id
+      LEFT JOIN calendario_pago cp ON p.id_pagare = cp.pagare_id
+      WHERE c.id_credito = $1
+      GROUP BY c.id_credito, c.saldo_pendiente
+    `, [credito_id]);
+
+    if (verificarFinalizacion.rows.length > 0) {
+      const creditoData = verificarFinalizacion.rows[0];
+      const nuevoSaldo = Number(creditoData.saldo_pendiente);
+      const totalPagos = Number(creditoData.total_pagos) || 0;
+      const pagosRealizados = Number(creditoData.pagos_realizados) || 0;
+
+      // Si saldo es 0 y todos los pagos están realizados, cambiar a FINALIZADO
+      if (nuevoSaldo <= 0.01 && totalPagos > 0 && pagosRealizados === totalPagos) {
+        await client.query(`
+          UPDATE credito
+          SET estado_credito = 'FINALIZADO'
+          WHERE id_credito = $1
+        `, [credito_id]);
+      }
+    }
+
     await client.query('COMMIT');
 
     return res.status(201).json({
@@ -477,6 +512,86 @@ const obtenerSemanasPendientes = async (req, res) => {
   }
 };
 
+// ====================================================
+// VERIFICAR Y ACTUALIZAR ESTADO A FINALIZADO
+// ====================================================
+// Una vez que todos los pagos se hayan realizado y saldo_pendiente = 0,
+// el crédito debe cambiar de ENTREGADO a FINALIZADO automáticamente.
+const verificarYActualizarEstado = async (req, res) => {
+  const { credito_id } = req.params;
+
+  try {
+    // 1. Verificar estado actual y saldo
+    const creditoRes = await pool.query(`
+      SELECT id_credito, estado_credito, saldo_pendiente
+      FROM credito
+      WHERE id_credito = $1
+    `, [credito_id]);
+
+    if (creditoRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Crédito no encontrado' });
+    }
+
+    const credito = creditoRes.rows[0];
+    const saldoPendiente = Number(credito.saldo_pendiente);
+
+    // 2. Contar pagos completados
+    const pagosRes = await pool.query(`
+      SELECT 
+        COUNT(cp.id_calendario) as total_pagos,
+        COUNT(CASE WHEN cp.pagado = true THEN 1 END) as pagos_realizados
+      FROM pagare p
+      LEFT JOIN calendario_pago cp ON p.id_pagare = cp.pagare_id
+      WHERE p.credito_id = $1
+    `, [credito_id]);
+
+    const pagosData = pagosRes.rows[0];
+    const totalPagos = Number(pagosData.total_pagos) || 0;
+    const pagosRealizados = Number(pagosData.pagos_realizados) || 0;
+
+    // 3. Determinar si debe ser FINALIZADO
+    const debeSerFinalizado = 
+      saldoPendiente <= 0.01 && 
+      totalPagos > 0 && 
+      pagosRealizados === totalPagos;
+
+    let estadoActual = credito.estado_credito;
+    let estadoActualizado = false;
+
+    // 4. Si debe ser FINALIZADO y aún no lo es, actulizar
+    if (debeSerFinalizado && credito.estado_credito !== 'FINALIZADO') {
+      await pool.query(`
+        UPDATE credito
+        SET estado_credito = 'FINALIZADO'
+        WHERE id_credito = $1
+      `, [credito_id]);
+      estadoActualizado = true;
+      estadoActual = 'FINALIZADO';
+    }
+
+    return res.json({
+      credito_id,
+      estado_anterior: credito.estado_credito,
+      estado_actual: estadoActual,
+      actualizado: estadoActualizado,
+      saldo_pendiente: saldoPendiente,
+      informacion: {
+        total_pagos: totalPagos,
+        pagos_realizados: pagosRealizados,
+        condicion_saldo: saldoPendiente <= 0.01,
+        condicion_pagos: pagosRealizados === totalPagos
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al verificar estado:', error);
+    res.status(500).json({
+      error: 'Error al verificar estado del crédito',
+      detalle: error.message
+    });
+  }
+};
+
 
 module.exports = {
   registrarPago,
@@ -486,5 +601,6 @@ module.exports = {
   editarPago,
   eliminarPago,
   obtenerSemanasPendientes,
-  calcularDiasAtraso
+  calcularDiasAtraso,
+  verificarYActualizarEstado
 };

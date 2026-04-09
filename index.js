@@ -43,10 +43,13 @@ app.use('/api/dashboard', dashboardRoutes);
 admin.auth().listUsers(1)
   .then(() => console.log('🔥 Firebase Admin conectado correctamente'))
   .catch(err => console.error('❌ Firebase Admin ERROR:', err));
+app.get('/', (req, res) => {
+  res.send('API funcionando');
+});
+const PORT = process.env.PORT || 3000;
 
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor corriendo en puerto ${PORT}`);
 });
 
 

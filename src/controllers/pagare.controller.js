@@ -714,7 +714,7 @@ const obtenerCalendarioPorPagare = async (req, res) => {
   }
 };
 
-// Obtener calendario por cliente
+// Obtener calendario por cliente (último crédito vigente)
 const obtenerCalendarioPorCliente = async (req, res) => {
   try {
     const { id_cliente } = req.params;
@@ -738,9 +738,17 @@ const obtenerCalendarioPorCliente = async (req, res) => {
        JOIN pagare p ON p.id_pagare = cp.pagare_id
        JOIN credito c ON c.id_credito = p.credito_id
        JOIN solicitud s ON s.id_solicitud = c.solicitud_id
-       JOIN cliente cli ON cli.id_cliente = s.cliente_id
-       WHERE cli.id_cliente = $1
-       ORDER BY cp.fecha_vencimiento`,
+       WHERE s.cliente_id = $1
+         AND c.id_credito = (
+           SELECT c2.id_credito
+           FROM credito c2
+           JOIN solicitud s2 ON s2.id_solicitud = c2.solicitud_id
+           WHERE s2.cliente_id = $1
+             AND c2.estado_credito::text != 'CANCELADO'
+           ORDER BY c2.id_credito DESC
+           LIMIT 1
+         )
+       ORDER BY cp.numero_pago ASC`,
       [id_cliente]
     );
 

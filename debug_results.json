@@ -1,0 +1,12 @@
+{
+  "creditos": [
+    {
+      "id_credito": 78,
+      "estado_credito": "VENCIDO",
+      "saldo_pendiente": "10102.00",
+      "nombre_cliente": "CAROLINA",
+      "app_cliente": "VARGAS",
+      "last_vencimiento": "2025-07-12T06:00:00.000Z"
+    }
+  ]
+}

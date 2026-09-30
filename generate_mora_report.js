@@ -1,28 +1,33 @@
 const { Pool } = require('pg');
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 
 const pool = new Pool({
-    connectionString: 'postgresql://postgres:admin@localhost:5432/cartera-convam'
+    connectionString: process.env.DATABASE_URL_RENDER || process.env.DATABASE_URL,
+    ssl: (process.env.DATABASE_URL_RENDER || process.env.NODE_ENV === 'production')
+        ? { rejectUnauthorized: false }
+        : false
 });
 
 async function generateReport() {
     try {
         // 1. Obtener Cartera Vencida (Saldo Total)
-        const vencidosQuery = `
-      SELECT 
-          c.id_credito,
-          cl.nombre_cliente || ' ' || cl.app_cliente AS cliente,
-          c.saldo_pendiente as monto_mora,
-          'CARTERA VENCIDA (Fuera de ciclo)' as tipo
-      FROM credito c
-      INNER JOIN solicitud s ON c.solicitud_id = s.id_solicitud
-      INNER JOIN cliente cl ON s.cliente_id = cl.id_cliente
-      INNER JOIN pagare p ON c.id_credito = p.credito_id
-      WHERE (c.estado_credito = 'VENCIDO' 
-         OR (SELECT MAX(fecha_vencimiento) FROM calendario_pago WHERE pagare_id = p.id_pagare) + INTERVAL '7 days' < CURRENT_DATE)
-         AND c.saldo_pendiente > 0;
-    `;
+        //     const vencidosQuery = `
+        //   SELECT 
+        //       c.id_credito,
+        //       cl.nombre_cliente || ' ' || cl.app_cliente AS cliente,
+        //       c.saldo_pendiente as monto_mora,
+        //       'CARTERA VENCIDA (Fuera de ciclo)' as tipo
+        //   FROM credito c
+        //   INNER JOIN solicitud s ON c.solicitud_id = s.id_solicitud
+        //   INNER JOIN cliente cl ON s.cliente_id = cl.id_cliente
+        //   INNER JOIN pagare p ON c.id_credito = p.credito_id
+        //   WHERE (c.estado_credito = 'VENCIDO' 
+        //      OR (SELECT MAX(fecha_vencimiento) FROM calendario_pago WHERE pagare_id = p.id_pagare) + INTERVAL '7 days' < CURRENT_DATE)
+        //      AND c.saldo_pendiente > 0
+        //      AND s.aliado_id IN (2, 5, 6, 7);
+        // `;
 
         // 2. Obtener Mora Corriente (Solo atrasos de dentro de ciclo)
         const corrienteQuery = `
@@ -51,10 +56,10 @@ async function generateReport() {
       HAVING SUM(cp.total_semana - cp.monto_pagado) > 0;
     `;
 
-        const resVencidos = await pool.query(vencidosQuery);
+        // const resVencidos = await pool.query(vencidosQuery);
         const resCorriente = await pool.query(corrienteQuery);
 
-        const allRecords = [...resVencidos.rows, ...resCorriente.rows];
+        const allRecords = [...resCorriente.rows];
 
         // Formatear archivo
         let fileContent = 'LISTADO DE CLIENTES EN MORA - CARTERA CONVAM\n';

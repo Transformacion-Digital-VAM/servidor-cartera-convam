@@ -193,7 +193,7 @@ const actualizarEstadoCredito = async (req, res) => {
   try {
     const { id } = req.params;
     const { estado_credito } = req.body;
-    if (!["PENDIENTE", "ENTREGADO", "DEVOLUCION", "FINALIZADO"].includes(estado_credito)) {
+    if (!["PENDIENTE", "ENTREGADO", "DEVOLUCION", "FINALIZADO", "VENCIDO"].includes(estado_credito)) {
 
       return res.status(400).json({ error: "Estado inválido" });
     }
@@ -251,22 +251,6 @@ const eliminarCredito = async (req, res) => {
 // -------------------------------------------
 // Obtener todos los créditos
 // -------------------------------------------
-// const obtenerCreditos = async (req, res) => {
-//   try {
-//     const result = await pool.query(`
-//       SELECT c.*, s.cliente_id
-//       FROM credito c
-//       LEFT JOIN solicitud s ON s.id_solicitud = c.solicitud_id
-//       ORDER BY c.id_credito DESC
-//     `);
-
-//     res.json(result.rows);
-
-//   } catch (error) {
-//     res.status(500).json({ error: "Error interno del servidor" });
-//   }
-// };
-// credito.controller.js - Modificar la función obtenerCreditos
 const obtenerCreditos = async (req, res) => {
   try {
     const result = await pool.query(`

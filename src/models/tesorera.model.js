@@ -1144,10 +1144,13 @@ class TreasuryModel {
                 cp.capital,
                 cp.interes,
                 cp.total_semana,
+                COALESCE(cp.monto_pagado, 0) as monto_pagado,
                 cp.mora_acumulada,
                 cp.pagado,
                 cp.fecha_pago,
                 cp.estatus,
+                -- Fecha de término del ciclo (último pago del pagaré)
+                (SELECT MAX(cp2.fecha_vencimiento) FROM calendario_pago cp2 WHERE cp2.pagare_id = p.id_pagare) AS fecha_termino,
                 -- Días de atraso
                 CASE 
                     WHEN cp.pagado = false AND cp.fecha_vencimiento < $1 

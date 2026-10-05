@@ -9,16 +9,19 @@ const solicitudRoutes = require('./src/routes/solicitud.routes');
 const creditoRoutes = require('./src/routes/credito.routes');
 const aliadoRoutes = require('./src/routes/aliado.routes');
 const pagareRoutes = require('./src/routes/pagare.routes');
+const calendarioPagoRoutes = require('./src/routes/calendario-pago.routes');
 const pagoRoutes = require('./src/routes/pago.routes');
 const reporteRoutes = require('./src/routes/reporte.routes');
 const dashboardRoutes = require('./src/routes/dashboard.routes');
+const ingresosRoutes = require('./src/routes/ingresos.routes');
+const gastosRoutes = require('./src/routes/gastos.routes');
 const admin = require('./src/config/firebase.js');
 const app = express();
 
 
 // Habilitar CORS para permitir solicitudes desde Angular
 app.use(cors({
-  origin: ['http://localhost:4200','https://convam-cartera.web.app'],
+  origin: ['http://localhost:4200', 'https://convam-cartera.web.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -36,10 +39,12 @@ app.use('/api/solicitud', solicitudRoutes);
 app.use('/api/credito', creditoRoutes);
 app.use('/api/aliado', aliadoRoutes);
 app.use('/api/pagare', pagareRoutes);
+app.use('/api/calendario-pago', calendarioPagoRoutes);
 app.use('/api/pago', pagoRoutes);
 app.use('/api/reporte', reporteRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-
+app.use('/api/ingresos', ingresosRoutes);
+app.use('/api/gastos', gastosRoutes);
 admin.auth().listUsers(1)
   .then(() => console.log('🔥 Firebase Admin conectado correctamente'))
   .catch(err => console.error('❌ Firebase Admin ERROR:', err));

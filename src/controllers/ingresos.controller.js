@@ -3,7 +3,7 @@ const pool = require('../config/db');
 const obtenerIngresos = async (req, res) => {
     const client = await pool.connect();
     try {
-        const { fecha_inicio, fecha_fin, periodo, cliente: filtroCliente, aliado: filtroAliado, aliados: filtroAliados } = req.query;
+        const { fecha_inicio, fecha_fin, periodo, cliente: filtroCliente, aliado: filtroAliado, aliados: filtroAliados, estado_credito: filtroEstadoCredito } = req.query;
 
         // Solo registros con pago confirmado
         let conditions = ['p.pago_registrado IS NOT NULL'];
@@ -77,6 +77,31 @@ const obtenerIngresos = async (req, res) => {
             }
         }
 
+        // ── Filtro por estado del crédito ────────────────────────────────────
+        if (filtroEstadoCredito && filtroEstadoCredito.trim()) {
+            const mapaEstados = {
+                'VENCIDOS': 'VENCIDO',
+                'FINALIZADOS': 'FINALIZADO',
+                'ENTREGADOS': 'ENTREGADO',
+                'PENDIENTES': 'PENDIENTE',
+                'DEVOLUCIONES': 'DEVOLUCION'
+            };
+            const estados = filtroEstadoCredito.split(',')
+                .map(e => e.trim().toUpperCase())
+                .filter(e => e.length > 0)
+                .map(e => mapaEstados[e] || e);
+
+            if (estados.length === 1) {
+                conditions.push(`UPPER(TRIM(c.estado_credito)) = $${paramIndex}`);
+                params.push(estados[0]);
+                paramIndex++;
+            } else if (estados.length > 1) {
+                const inPlaceholders = estados.map((_, i) => `$${paramIndex + i}`).join(', ');
+                conditions.push(`UPPER(TRIM(c.estado_credito)) IN (${inPlaceholders})`);
+                estados.forEach(e => { params.push(e); paramIndex++; });
+            }
+        }
+
 
         const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
@@ -109,6 +134,7 @@ const obtenerIngresos = async (req, res) => {
 
                 -- Contexto del crédito
                 c.id_credito,
+                c.estado_credito,
                 s.id_solicitud,
                 s.tipo_vencimiento,
                 COALESCE(s.no_pagos, 16)                        AS no_pagos,
@@ -141,16 +167,16 @@ const obtenerIngresos = async (req, res) => {
         const result = await client.query(query, params);
 
         // ── Totales: sobre montos REALES cobrados ─────────────────────────────
-        let total_ingresos  = 0;   // interés real cobrado
-        let total_capital   = 0;   // capital real recuperado
-        let total_mora      = 0;   // mora real cobrada (no acumulada)
+        let total_ingresos = 0;   // interés real cobrado
+        let total_capital = 0;   // capital real recuperado
+        let total_mora = 0;   // mora real cobrada (no acumulada)
         let total_recaudado = 0;   // total real de caja
 
         result.rows.forEach(row => {
-            total_ingresos  += Number(row.interes)        || 0;
-            total_capital   += Number(row.capital)        || 0;
-            total_mora      += Number(row.mora_acumulada) || 0;
-            total_recaudado += Number(row.monto_pagado)   || 0;
+            total_ingresos += Number(row.interes) || 0;
+            total_capital += Number(row.capital) || 0;
+            total_mora += Number(row.mora_acumulada) || 0;
+            total_recaudado += Number(row.monto_pagado) || 0;
         });
 
         res.status(200).json({

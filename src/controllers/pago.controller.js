@@ -22,6 +22,13 @@ const registrarPago = async (req, res) => {
     if (!credito_id) return res.status(400).json({ error: 'Falta el credito_id' });
     if (!registrado_por) return res.status(400).json({ error: 'Falta registrado_por' });
 
+    // Verificar si el usuario que intenta registrar tiene rol Auditor (rol_id = 5) o no tiene permisos
+    const userRoleRes = await client.query('SELECT rol_id FROM usuario WHERE id_usuario = $1', [registrado_por]);
+    if (userRoleRes.rows.length > 0 && Number(userRoleRes.rows[0].rol_id) === 5) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'El usuario con rol Auditor sólo tiene permisos de visualización y no puede registrar pagos' });
+    }
+
     const pagoRegistradoNum = Number(pago_registrado) || 0;
     const moratoriosNum = Number(moratorios) || 0;
     const totalPago = pagoRegistradoNum + moratoriosNum;
